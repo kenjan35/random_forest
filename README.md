@@ -82,11 +82,14 @@ windows = np.array([
 print(windows.shape)
 ```
 
+*Note : We can slice data like : tab[begin:end]. End is never include.*
+
 ### Pandas
 
 - read_csv : read a CSV file
 - head : return all first lines
 - columns : return all column's real name
+- to_numpy : convert into numpy ndarray
 
 ```sh
 import pandas as pd
@@ -103,6 +106,14 @@ print(df.columns)
 
 # fuel become a Series pandas. A Series is a column.
 fuel = df["Fuel Volume"]
+
+# It will print pandas.core.series.Series
+print(type(fuel))
+
+# Then we need to convert the Series into NumPy ndarray. Now type(fuel) will return ndarray
+fuel = fuel.to_numpy()
+
+
 ```
 
 ## Role of each library
