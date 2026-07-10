@@ -123,3 +123,23 @@ fuel = fuel.to_numpy()
 - numpy : perform quick calculations on numerical data
 - scikit-learn : train the Machine Learning model
 
+## Creation
+
+### Calculate delta fuel
+We must applicate the logic :
+
+```sh
+fuel[1:] - fuel[:-1]
+```
+
+After this, all our data (180, 179.9, 179.8, 179.7, 179.6) become -0.1,-0.1,-0.1,-0.1.
+
+### Create_windows
+
+Now, we can create windows from our initial data and another one from delta fuel.
+
+### Normalisation
+
+If we have two generators, but both have different stockage, so ML will learn about stockage, not consumption.
+That's we must normalize our datas.
+
