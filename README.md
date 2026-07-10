@@ -51,7 +51,8 @@ There's 2 essentials parameters :
 ### Numpy
 
 - array : this function is used to create a numpy array.
-- shape : A tuple showing the length of each dimension of an ndarray.
+- shape (attribute) : A tuple showing the length of each dimension of an ndarray.
+- size (attribute) : The total number of elements in array
 
 ```sh
 import numpy as np
