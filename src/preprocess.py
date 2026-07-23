@@ -1,7 +1,7 @@
 import pandas as pd
 
-def load_csv():
-    df = pd.read_csv("data/normal/Normal_1.csv")
+def load_csv(file):
+    df = pd.read_csv(file)
     df = df["(MFSX) FSA Fuel Volume (Ltr) [MFSX:01:1:4] (S1)"]
     df = df.to_numpy()
     return df
