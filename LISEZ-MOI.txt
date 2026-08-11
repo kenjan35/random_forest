@@ -1,0 +1,15 @@
+DETECTION DE VOL DE CARBURANT - Installation
+
+1. Verifiez que Python est installe sur cet ordinateur.
+   S'il ne l'est pas : https://www.python.org/downloads/
+   Pendant l'installation, cochez la case "Add python.exe to PATH".
+
+2. Double-cliquez sur "installer.bat" (une seule fois).
+   Une fenetre noire s'ouvre, installe tout automatiquement, puis se ferme.
+
+3. Ensuite, double-cliquez sur "lancer.bat" a chaque utilisation.
+   L'application s'ouvre directement, sans fenetre noire.
+
+Astuce : clic droit sur lancer.bat > Creer un raccourci, puis deplacez
+ce raccourci sur le Bureau pour lancer l'application comme n'importe
+quel autre logiciel.

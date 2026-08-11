@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 
 from gui.chart import FuelChart
 from gui.workers import SingleFileWorker
+from gui.cursor_utils import apply_pointer_cursor, set_button_enabled
 
 
 class SingleFileTab(QWidget):
@@ -32,9 +33,11 @@ class SingleFileTab(QWidget):
         row = QHBoxLayout()
         self.browse_btn = QPushButton("Choisir un fichier…")
         self.browse_btn.clicked.connect(self.browse_file)
+        apply_pointer_cursor(self.browse_btn)
         self.analyze_btn = QPushButton("Analyser")
         self.analyze_btn.setEnabled(False)
         self.analyze_btn.clicked.connect(self.run_analysis)
+        apply_pointer_cursor(self.analyze_btn)
         self.path_label = QLabel("Aucun fichier sélectionné")
         self.path_label.setObjectName("pathLabel")
         row.addWidget(self.browse_btn)
@@ -99,12 +102,12 @@ class SingleFileTab(QWidget):
     def set_selected_file(self, path):
         self.selected_path = path
         self.path_label.setText(os.path.basename(path))
-        self.analyze_btn.setEnabled(True)
+        set_button_enabled(self.analyze_btn, True)
 
     def run_analysis(self):
         if not self.selected_path:
             return
-        self.analyze_btn.setEnabled(False)
+        set_button_enabled(self.analyze_btn, False)
         self.analyze_btn.setText("Analyse en cours…")
         self.events_list.clear()
         self.status_label.setText("")
@@ -116,7 +119,7 @@ class SingleFileTab(QWidget):
 
     def on_success(self, result):
         self.current_result = result
-        self.analyze_btn.setEnabled(True)
+        set_button_enabled(self.analyze_btn, True)
         self.analyze_btn.setText("Analyser")
 
         if result["has_theft"]:
@@ -138,7 +141,7 @@ class SingleFileTab(QWidget):
         self.chart.plot(result)
 
     def on_error(self, message):
-        self.analyze_btn.setEnabled(True)
+        set_button_enabled(self.analyze_btn, True)
         self.analyze_btn.setText("Analyser")
         self.status_label.setStyleSheet(
             "background-color:#78350f; color:#fde68a; border-radius:10px; padding:6px 12px; font-weight:700;"

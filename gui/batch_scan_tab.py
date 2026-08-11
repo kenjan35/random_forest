@@ -4,12 +4,14 @@ import os
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFileDialog,
-    QTableWidget, QTableWidgetItem, QProgressBar, QSplitter, QAbstractItemView
+    QTableWidget, QTableWidgetItem, QProgressBar, QSplitter, QAbstractItemView,
+    QListWidget, QListWidgetItem
 )
 
 from gui.chart import FuelChart
 from gui.workers import BatchScanWorker
 from gui.analysis import analyze_file, AnalysisError
+from gui.cursor_utils import apply_pointer_cursor, set_button_enabled
 
 COL_FILE, COL_STATUS, COL_EVENTS, COL_FIRST_ALERT = range(4)
 
@@ -31,7 +33,6 @@ class BatchScanTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.worker = None
-        self.results_by_row = {}
         self._build_ui()
 
     def _build_ui(self):
@@ -42,13 +43,21 @@ class BatchScanTab(QWidget):
         row = QHBoxLayout()
         self.choose_btn = QPushButton("Choisir un dossier…")
         self.choose_btn.clicked.connect(self.choose_folder)
+        apply_pointer_cursor(self.choose_btn)
+        self.select_all_btn = QPushButton("Tout sélectionner")
+        self.select_all_btn.setObjectName("secondary")
+        self.select_all_btn.setEnabled(False)
+        self.select_all_btn.clicked.connect(self.select_all_rows)
+        apply_pointer_cursor(self.select_all_btn)
         self.export_btn = QPushButton("Exporter en CSV")
         self.export_btn.setObjectName("secondary")
         self.export_btn.setEnabled(False)
         self.export_btn.clicked.connect(self.export_csv)
+        apply_pointer_cursor(self.export_btn)
         self.folder_label = QLabel("Aucun dossier sélectionné")
         self.folder_label.setObjectName("pathLabel")
         row.addWidget(self.choose_btn)
+        row.addWidget(self.select_all_btn)
         row.addWidget(self.export_btn)
         row.addWidget(self.folder_label, stretch=1)
         root.addLayout(row)
@@ -69,8 +78,25 @@ class BatchScanTab(QWidget):
         self.table.itemSelectionChanged.connect(self.on_row_selected)
         splitter.addWidget(self.table)
 
+        detail_splitter = QSplitter(Qt.Horizontal)
+
+        left = QWidget()
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        title = QLabel("Périodes suspectes")
+        title.setObjectName("sectionTitle")
+        left_layout.addWidget(title)
+        self.events_list = QListWidget()
+        left_layout.addWidget(self.events_list)
+
         self.chart = FuelChart()
-        splitter.addWidget(self.chart)
+
+        detail_splitter.addWidget(left)
+        detail_splitter.addWidget(self.chart)
+        detail_splitter.setStretchFactor(0, 1)
+        detail_splitter.setStretchFactor(1, 2)
+
+        splitter.addWidget(detail_splitter)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 1)
 
@@ -83,12 +109,13 @@ class BatchScanTab(QWidget):
 
     def start_scan(self, folder):
         self.folder_label.setText(folder)
+        self.table.setSortingEnabled(False)  # évite le tri en plein remplissage (lignes/colonnes désynchronisées)
         self.table.setRowCount(0)
-        self.results_by_row.clear()
-        self.export_btn.setEnabled(False)
+        set_button_enabled(self.export_btn, False)
+        set_button_enabled(self.select_all_btn, False)
         self.progress.setVisible(True)
         self.progress.setValue(0)
-        self.choose_btn.setEnabled(False)
+        set_button_enabled(self.choose_btn, False)
 
         self.worker = BatchScanWorker(folder)
         self.worker.progress.connect(self.on_progress)
@@ -103,10 +130,11 @@ class BatchScanTab(QWidget):
     def on_file_done(self, result):
         row = self.table.rowCount()
         self.table.insertRow(row)
-        self.results_by_row[row] = result
 
         filename = result.get("filename") or os.path.basename(result["csv_path"])
-        self.table.setItem(row, COL_FILE, QTableWidgetItem(filename))
+        file_item = QTableWidgetItem(filename)
+        file_item.setData(Qt.ItemDataRole.UserRole, result)  # attaché à l'item -> suit la ligne même après un tri
+        self.table.setItem(row, COL_FILE, file_item)
 
         if result.get("error"):
             self.table.setItem(row, COL_STATUS, QTableWidgetItem("Erreur"))
@@ -124,18 +152,32 @@ class BatchScanTab(QWidget):
 
     def on_finished(self):
         self.progress.setVisible(False)
-        self.choose_btn.setEnabled(True)
-        self.export_btn.setEnabled(self.table.rowCount() > 0)
+        set_button_enabled(self.choose_btn, True)
+        has_rows = self.table.rowCount() > 0
+        set_button_enabled(self.export_btn, has_rows)
+        set_button_enabled(self.select_all_btn, has_rows)
+        self.table.setSortingEnabled(True)  # le tri ne reprend qu'une fois toutes les lignes remplies
+
+    def select_all_rows(self):
+        self.table.selectAll()
 
     def on_row_selected(self):
         rows = self.table.selectionModel().selectedRows()
         if not rows:
             return
         row = rows[0].row()
-        result = self.results_by_row.get(row)
+        file_item = self.table.item(row, COL_FILE)
+        result = file_item.data(Qt.ItemDataRole.UserRole) if file_item else None
+
+        self.events_list.clear()
         if not result or result.get("error"):
             self.chart.clear()
             return
+
+        for ev in result["events"]:
+            item = QListWidgetItem(f'Lignes {ev["row_start"]}-{ev["row_end"]}\n{ev["ts_start"]}  →  {ev["ts_end"]}')
+            self.events_list.addItem(item)
+
         # le résultat stocké lors du scan contient déjà tout ce qu'il faut pour le graphique
         self.chart.plot(result)
 

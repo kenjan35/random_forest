@@ -41,6 +41,51 @@ def find_csv_files(folder):
     return sorted(glob.glob(os.path.join(folder, "**", "*.csv"), recursive=True))
 
 
+# Fraction minimale d'une fenêtre d'alerte devant coïncider avec un
+# décrochage capteur pour que l'alerte soit reclassée comme anomalie
+# plutôt que comme vol suspecté.
+GLITCH_OVERLAP_THRESHOLD = 0.6
+
+# Une chute à 0 L n'est considérée comme un décrochage capteur que si le
+# réservoir n'était PAS déjà proche de vide juste avant ou juste après
+# (sinon il s'agit d'une vraie fin de réservoir, cf. panne sèche).
+GLITCH_BASELINE_RATIO = 0.3
+
+
+def detect_sensor_glitches(fuel, baseline_ratio=GLITCH_BASELINE_RATIO):
+    """
+    Détecte les décrochages capteur : le niveau de carburant tombe
+    brutalement à 0 L puis remonte à un niveau proche de celui d'avant la
+    coupure. C'est physiquement impossible pour une vraie fuite ou un vrai
+    vol (le carburant ne "revient" pas tout seul dans le réservoir) : c'est
+    la signature typique d'une coupure de communication ou d'une
+    réinitialisation du capteur à 0.
+
+    Ne touche pas à la logique de prédiction : c'est un filtre appliqué en
+    plus, sur les données brutes, pour qualifier les alertes a posteriori.
+
+    Retourne un tableau booléen (même taille que `fuel`), True pour les
+    lignes appartenant à un épisode identifié comme décrochage capteur.
+    """
+    glitch = np.zeros(len(fuel), dtype=bool)
+    if len(fuel) == 0:
+        return glitch
+
+    capacity_estimate = float(np.quantile(fuel, 0.95)) or 1.0
+    threshold = baseline_ratio * capacity_estimate
+
+    zero_indices = np.flatnonzero(fuel == 0).tolist()
+    for start, end in group_consecutive(zero_indices):
+        before = fuel[start - 1] if start > 0 else None
+        after = fuel[end + 1] if end + 1 < len(fuel) else None
+        was_full_before = before is not None and before >= threshold
+        recovers_after = after is not None and after >= threshold
+        if was_full_before or recovers_after:
+            glitch[start:end + 1] = True
+
+    return glitch
+
+
 def analyze_file(csv_path):
     """
     Lance predict() sur un fichier et retourne toutes les infos nécessaires
@@ -80,16 +125,31 @@ def analyze_file(csv_path):
     alert_window_indices = [i for i, v in enumerate(prediction) if v == 1]
     window_events = group_consecutive(alert_window_indices)
 
+    glitch_mask = detect_sensor_glitches(fuel)
+
     events = []
+    events_ignored = []
     for (window_start, window_end) in window_events:
         row_start = window_start
         row_end = min(window_end + WINDOW_SIZE - 1, len(timestamps) - 1)
-        events.append({
+        span = glitch_mask[row_start:row_end + 1]
+        glitch_ratio = float(span.mean()) if len(span) else 0.0
+
+        event = {
             "row_start": int(row_start),
             "row_end": int(row_end),
             "ts_start": str(timestamps[row_start]),
             "ts_end": str(timestamps[row_end]),
-        })
+            "glitch_ratio": round(glitch_ratio, 2),
+        }
+
+        # L'alerte coïncide surtout avec un décrochage capteur identifié :
+        # on l'écarte du décompte de vols mais on la garde à part, visible,
+        # plutôt que de la faire disparaître silencieusement.
+        if glitch_ratio >= GLITCH_OVERLAP_THRESHOLD:
+            events_ignored.append(event)
+        else:
+            events.append(event)
 
     return {
         "csv_path": csv_path,
@@ -103,5 +163,7 @@ def analyze_file(csv_path):
         "n_alert_windows": int(prediction.sum()) if len(prediction) else 0,
         "events": events,
         "n_events": len(events),
+        "events_ignored": events_ignored,
+        "n_events_ignored": len(events_ignored),
         "has_theft": len(events) > 0,
     }

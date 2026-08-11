@@ -1,9 +1,8 @@
 """
 Graphique du niveau de carburant, avec les périodes suspectes surlignées
 et un bandeau d'état du générateur (Actif/Inactif) en dessous.
+S'adapte au thème clair/sombre de l'application.
 """
-
-import os
 
 import numpy as np
 
@@ -12,10 +11,15 @@ matplotlib.use("QtAgg")
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-FUEL_COLOR = "#2563eb"
+FUEL_COLOR = "#1caae2"
 ALERT_COLOR = "#ef4444"
 ACTIVE_COLOR = "#22c55e"
-INACTIVE_COLOR = "#cbd5e1"
+INACTIVE_COLOR = "#94a3b8"
+
+THEMES = {
+    "dark": dict(figure_bg="#22252c", axes_bg="#22252c", text="#e6e8ec", grid="#3a3e48"),
+    "light": dict(figure_bg="#ffffff", axes_bg="#ffffff", text="#0f172a", grid="#cbd5e1"),
+}
 
 
 class FuelChart(FigureCanvas):
@@ -25,23 +29,41 @@ class FuelChart(FigureCanvas):
         self.setParent(parent)
         self.ax_fuel = None
         self.ax_status = None
+        self._theme = THEMES["dark"]
+        self._last_result = None
         self._build_axes()
+
+    def set_theme(self, is_dark):
+        self._theme = THEMES["dark"] if is_dark else THEMES["light"]
+        if self._last_result is not None:
+            self.plot(self._last_result)
+        else:
+            self.clear()
 
     def _build_axes(self):
         self.fig.clear()
+        self.fig.patch.set_facecolor(self._theme["figure_bg"])
         gs = self.fig.add_gridspec(2, 1, height_ratios=[4, 1], hspace=0.08)
         self.ax_fuel = self.fig.add_subplot(gs[0])
         self.ax_status = self.fig.add_subplot(gs[1], sharex=self.ax_fuel)
+        for ax in (self.ax_fuel, self.ax_status):
+            ax.set_facecolor(self._theme["axes_bg"])
+            ax.tick_params(colors=self._theme["text"])
+            for spine in ax.spines.values():
+                spine.set_color(self._theme["grid"])
 
     def clear(self):
+        self._last_result = None
         self._build_axes()
         self.draw()
 
     def plot(self, result):
+        self._last_result = result
         self._build_axes()
         fuel = result["fuel"]
         active = result["active"]
         x = np.arange(len(fuel))
+        text_color = self._theme["text"]
 
         self.ax_fuel.plot(x, fuel, color=FUEL_COLOR, linewidth=1.2, label="Carburant (L)")
         for ev in result["events"]:
@@ -52,10 +74,10 @@ class FuelChart(FigureCanvas):
             title += f"  —  {result['n_events']} période(s) suspecte(s)"
         else:
             title += "  —  aucun vol détecté"
-        self.ax_fuel.set_title(title, fontsize=11, fontweight="bold")
-        self.ax_fuel.set_ylabel("Litres")
+        self.ax_fuel.set_title(title, fontsize=11, fontweight="bold", color=text_color)
+        self.ax_fuel.set_ylabel("Litres", color=text_color)
         self.ax_fuel.tick_params(labelbottom=False)
-        self.ax_fuel.grid(alpha=0.2)
+        self.ax_fuel.grid(alpha=0.25, color=self._theme["grid"])
 
         # bandeau d'état du générateur, simplifié si trop de bascules pour rester lisible
         self.ax_status.fill_between(
@@ -65,6 +87,6 @@ class FuelChart(FigureCanvas):
             x, 0, 1, where=~active, color=INACTIVE_COLOR, step="mid", alpha=0.6, label="Inactif"
         )
         self.ax_status.set_yticks([])
-        self.ax_status.set_xlabel("Relevé (index)")
+        self.ax_status.set_xlabel("Relevé (index)", color=text_color)
 
         self.draw()

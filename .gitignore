@@ -1,3 +1,4 @@
 data/
 model/
 src/__pycache__/
+venv/
