@@ -1,0 +1,209 @@
+Country,MG
+Total Sites with issues,142
+Total Anomalies YTD,180
+Total Anomalies MTD,0
+Total Fuel Drop (L) YTD,18976.9
+Total Fuel Drop (L) MTD,0.0
+
+fichier,statut,nb_periodes_suspectes,premiere_alerte
+Normal_99.csv,⚠️ Suspect,7,12 Feb 2024 21:53:01
+Normal_98.csv,✅ Normal,0,
+Normal_97.csv,✅ Normal,0,
+Normal_96.csv,✅ Normal,0,
+Normal_95.csv,⚠️ Suspect,7,15 Jun 2026 07:33:46
+Normal_94.csv,⚠️ Suspect,6,29 Jul 2024 22:41:15
+Normal_93.csv,✅ Normal,0,
+Normal_92.csv,⚠️ Suspect,7,10 Jun 2024 12:49:02
+Normal_91.csv,⚠️ Suspect,5,08 Dec 2024 07:51:59
+Normal_90.csv,⚠️ Suspect,2,24 Jan 2025 11:03:38
+Normal_9.csv,✅ Normal,0,
+Normal_89.csv,⚠️ Suspect,1,20 Apr 2024 12:44:16
+Normal_88.csv,⚠️ Suspect,10,06 Dec 2025 16:15:09
+Normal_87.csv,⚠️ Suspect,6,28 Jul 2024 08:02:54
+Normal_86.csv,⚠️ Suspect,8,07 Oct 2024 06:59:28
+Normal_85.csv,⚠️ Suspect,5,28 Nov 2025 15:00:24
+Normal_84.csv,⚠️ Suspect,6,25 Dec 2024 10:05:01
+Normal_83.csv,⚠️ Suspect,6,02 Dec 2024 06:26:06
+Normal_82.csv,✅ Normal,0,
+Normal_81.csv,✅ Normal,0,
+Normal_80.csv,⚠️ Suspect,6,09 Aug 2025 14:11:27
+Normal_8.csv,⚠️ Suspect,2,20 Sep 2024 09:39:47
+Normal_79.csv,⚠️ Suspect,9,24 May 2026 14:32:39
+Normal_78.csv,⚠️ Suspect,1,17 Mar 2025 07:14:32
+Normal_77.csv,⚠️ Suspect,5,06 Jan 2024 11:34:30
+Normal_76.csv,✅ Normal,0,
+Normal_75.csv,✅ Normal,0,
+Normal_74.csv,⚠️ Suspect,1,22 May 2025 22:44:05
+Normal_73.csv,⚠️ Suspect,4,03 Mar 2026 13:54:43
+Normal_72.csv,✅ Normal,0,
+Normal_71.csv,⚠️ Suspect,8,02 Feb 2025 11:24:47
+Normal_70.csv,✅ Normal,0,
+Normal_7.csv,⚠️ Suspect,10,02 Nov 2025 00:54:37
+Normal_69.csv,✅ Normal,0,
+Normal_68.csv,✅ Normal,0,
+Normal_67.csv,⚠️ Suspect,3,26 Jul 2025 13:35:47
+Normal_66.csv,⚠️ Suspect,2,15 Sep 2025 20:25:49
+Normal_65.csv,✅ Normal,0,
+Normal_64.csv,✅ Normal,0,
+Normal_63.csv,✅ Normal,0,
+Normal_62.csv,✅ Normal,0,
+Normal_61.csv,✅ Normal,0,
+Normal_60.csv,⚠️ Suspect,8,23 Jan 2026 04:05:03
+Normal_6.csv,⚠️ Suspect,1,25 Sep 2024 01:00:09
+Normal_59.csv,⚠️ Suspect,4,09 Oct 2024 18:03:30
+Normal_58.csv,⚠️ Suspect,6,27 Jul 2024 07:56:31
+Normal_57.csv,⚠️ Suspect,8,25 Oct 2025 14:36:08
+Normal_56.csv,✅ Normal,0,
+Normal_55.csv,⚠️ Suspect,5,20 Jun 2024 08:15:07
+Normal_54.csv,✅ Normal,0,
+Normal_53.csv,⚠️ Suspect,6,11 Feb 2025 22:05:04
+Normal_52.csv,⚠️ Suspect,3,21 Mar 2024 19:44:03
+Normal_51.csv,✅ Normal,0,
+Normal_50.csv,✅ Normal,0,
+Normal_5.csv,⚠️ Suspect,3,04 May 2025 03:14:19
+Normal_49.csv,⚠️ Suspect,7,31 Jul 2024 06:29:39
+Normal_48.csv,✅ Normal,0,
+Normal_47.csv,⚠️ Suspect,6,20 Jul 2025 16:14:17
+Normal_46.csv,⚠️ Suspect,5,08 Aug 2024 05:15:31
+Normal_45.csv,⚠️ Suspect,5,15 Jun 2025 01:40:42
+Normal_44.csv,⚠️ Suspect,6,09 Jan 2024 05:37:39
+Normal_43.csv,⚠️ Suspect,4,27 Oct 2024 19:07:32
+Normal_42.csv,⚠️ Suspect,6,22 Oct 2024 01:00:38
+Normal_41.csv,⚠️ Suspect,1,19 Apr 2025 02:11:17
+Normal_40.csv,⚠️ Suspect,6,01 Jul 2025 18:48:01
+Normal_4.csv,⚠️ Suspect,15,07 Jul 2024 12:19:11
+Normal_39.csv,⚠️ Suspect,5,26 Mar 2025 07:41:00
+Normal_38.csv,⚠️ Suspect,4,10 Jun 2025 22:03:24
+Normal_37.csv,⚠️ Suspect,5,01 Apr 2024 05:25:46
+Normal_36.csv,⚠️ Suspect,7,01 Feb 2026 20:49:25
+Normal_35.csv,⚠️ Suspect,2,25 Jun 2025 09:10:05
+Normal_34.csv,⚠️ Suspect,7,20 Apr 2026 17:03:22
+Normal_33.csv,✅ Normal,0,
+Normal_32.csv,⚠️ Suspect,1,08 Nov 2024 18:06:59
+Normal_31.csv,⚠️ Suspect,8,07 Oct 2025 01:52:12
+Normal_30.csv,✅ Normal,0,
+Normal_3.csv,⚠️ Suspect,3,12 Feb 2026 19:11:35
+Normal_29.csv,⚠️ Suspect,9,12 Mar 2025 03:10:58
+Normal_28.csv,⚠️ Suspect,4,09 May 2025 18:04:20
+Normal_27.csv,⚠️ Suspect,3,07 Jun 2024 02:37:09
+Normal_26.csv,⚠️ Suspect,7,15 Jul 2024 11:50:39
+Normal_25.csv,⚠️ Suspect,6,09 Apr 2025 19:41:01
+Normal_24.csv,⚠️ Suspect,7,09 Oct 2025 22:16:02
+Normal_23.csv,✅ Normal,0,
+Normal_22.csv,⚠️ Suspect,5,30 Mar 2026 02:16:16
+Normal_21.csv,⚠️ Suspect,10,16 Jan 2026 16:10:58
+Normal_201.csv,⚠️ Suspect,3,11 Mar 2026 23:36:33
+Normal_200.csv,⚠️ Suspect,4,28 Nov 2025 11:59:01
+Normal_20.csv,✅ Normal,0,
+Normal_2.csv,⚠️ Suspect,4,23 Nov 2024 18:58:02
+Normal_199.csv,✅ Normal,0,
+Normal_198.csv,⚠️ Suspect,8,01 Jul 2024 12:25:51
+Normal_197.csv,⚠️ Suspect,8,18 Jul 2024 05:02:35
+Normal_196.csv,⚠️ Suspect,6,31 Aug 2024 16:20:55
+Normal_195.csv,⚠️ Suspect,3,26 Feb 2025 21:27:52
+Normal_194.csv,✅ Normal,0,
+Normal_193.csv,⚠️ Suspect,6,16 Apr 2024 22:48:55
+Normal_192.csv,⚠️ Suspect,6,23 Apr 2026 20:37:29
+Normal_191.csv,⚠️ Suspect,16,06 Feb 2025 10:59:59
+Normal_190.csv,✅ Normal,0,
+Normal_19.csv,⚠️ Suspect,9,13 Aug 2024 16:41:47
+Normal_189.csv,⚠️ Suspect,8,28 Jul 2024 17:57:32
+Normal_188.csv,⚠️ Suspect,7,15 Apr 2024 19:20:06
+Normal_187.csv,⚠️ Suspect,5,23 Sep 2025 17:39:45
+Normal_186.csv,⚠️ Suspect,8,19 Jul 2024 10:00:11
+Normal_185.csv,⚠️ Suspect,7,28 Jul 2025 19:25:31
+Normal_184.csv,✅ Normal,0,
+Normal_183.csv,⚠️ Suspect,1,20 Jun 2025 02:16:25
+Normal_182.csv,⚠️ Suspect,8,10 Jun 2026 13:56:20
+Normal_181.csv,✅ Normal,0,
+Normal_180.csv,⚠️ Suspect,2,26 Sep 2024 14:58:21
+Normal_18.csv,⚠️ Suspect,4,21 May 2026 17:55:31
+Normal_179.csv,⚠️ Suspect,11,17 Feb 2025 13:30:14
+Normal_178.csv,✅ Normal,0,
+Normal_177.csv,✅ Normal,0,
+Normal_176.csv,⚠️ Suspect,8,22 Feb 2024 11:01:08
+Normal_175.csv,⚠️ Suspect,8,18 Feb 2026 23:04:08
+Normal_174.csv,✅ Normal,0,
+Normal_173.csv,⚠️ Suspect,6,03 Aug 2025 22:23:12
+Normal_172.csv,⚠️ Suspect,2,09 Jun 2026 13:15:14
+Normal_171.csv,⚠️ Suspect,7,05 Jun 2025 22:30:23
+Normal_170.csv,⚠️ Suspect,6,10 Mar 2026 22:38:45
+Normal_17.csv,✅ Normal,0,
+Normal_169.csv,⚠️ Suspect,4,26 Jul 2024 09:30:45
+Normal_168.csv,✅ Normal,0,
+Normal_167.csv,✅ Normal,0,
+Normal_166.csv,⚠️ Suspect,7,17 Jun 2024 13:41:00
+Normal_165.csv,⚠️ Suspect,8,13 Apr 2024 00:05:35
+Normal_164.csv,✅ Normal,0,
+Normal_163.csv,✅ Normal,0,
+Normal_162.csv,⚠️ Suspect,1,26 Sep 2025 05:08:32
+Normal_161.csv,⚠️ Suspect,5,16 Aug 2025 04:37:12
+Normal_160.csv,⚠️ Suspect,6,01 Dec 2025 16:34:12
+Normal_16.csv,✅ Normal,0,
+Normal_159.csv,⚠️ Suspect,4,14 Jun 2024 09:29:25
+Normal_158.csv,⚠️ Suspect,3,14 Aug 2024 12:10:40
+Normal_157.csv,✅ Normal,0,
+Normal_156.csv,✅ Normal,0,
+Normal_155.csv,✅ Normal,0,
+Normal_154.csv,⚠️ Suspect,1,17 Jan 2026 00:16:22
+Normal_153.csv,⚠️ Suspect,2,15 Feb 2026 13:25:50
+Normal_152.csv,⚠️ Suspect,7,28 Feb 2026 19:26:13
+Normal_151.csv,⚠️ Suspect,7,01 Sep 2024 16:52:08
+Normal_150.csv,⚠️ Suspect,4,16 Feb 2024 07:04:47
+Normal_15.csv,✅ Normal,0,
+Normal_149.csv,⚠️ Suspect,5,15 Sep 2025 14:09:35
+Normal_148.csv,⚠️ Suspect,4,15 Jan 2026 07:21:26
+Normal_147.csv,⚠️ Suspect,2,25 Jan 2025 03:27:56
+Normal_146.csv,✅ Normal,0,
+Normal_145.csv,⚠️ Suspect,1,14 Jul 2024 00:45:35
+Normal_144.csv,✅ Normal,0,
+Normal_143.csv,⚠️ Suspect,3,24 Jul 2024 01:51:20
+Normal_142.csv,✅ Normal,0,
+Normal_141.csv,✅ Normal,0,
+Normal_140.csv,⚠️ Suspect,15,02 Jun 2024 03:29:35
+Normal_14.csv,⚠️ Suspect,6,29 Mar 2024 19:19:05
+Normal_139.csv,⚠️ Suspect,3,14 Apr 2026 09:24:28
+Normal_138.csv,✅ Normal,0,
+Normal_137.csv,⚠️ Suspect,9,29 May 2026 17:36:04
+Normal_136.csv,⚠️ Suspect,12,25 Apr 2026 15:57:00
+Normal_135.csv,⚠️ Suspect,3,30 Oct 2025 06:35:41
+Normal_134.csv,⚠️ Suspect,2,01 Jun 2024 03:32:04
+Normal_133.csv,⚠️ Suspect,4,18 Dec 2024 13:02:55
+Normal_132.csv,⚠️ Suspect,5,06 Aug 2025 13:20:24
+Normal_131.csv,⚠️ Suspect,5,26 Jun 2025 06:29:31
+Normal_130.csv,✅ Normal,0,
+Normal_13.csv,⚠️ Suspect,9,22 Feb 2026 03:10:04
+Normal_129.csv,✅ Normal,0,
+Normal_128.csv,⚠️ Suspect,6,12 Oct 2025 17:26:27
+Normal_127.csv,✅ Normal,0,
+Normal_126.csv,✅ Normal,0,
+Normal_125.csv,⚠️ Suspect,14,28 Dec 2025 12:09:40
+Normal_124.csv,⚠️ Suspect,5,30 Jul 2025 02:34:31
+Normal_123.csv,⚠️ Suspect,9,27 Apr 2025 19:30:50
+Normal_122.csv,⚠️ Suspect,1,26 Feb 2026 08:45:50
+Normal_121.csv,⚠️ Suspect,5,15 Mar 2026 14:02:11
+Normal_120.csv,⚠️ Suspect,2,13 Jul 2024 07:33:17
+Normal_12.csv,✅ Normal,0,
+Normal_119.csv,⚠️ Suspect,5,24 Mar 2025 07:10:51
+Normal_118.csv,⚠️ Suspect,13,19 May 2024 10:33:56
+Normal_117.csv,⚠️ Suspect,10,19 Apr 2025 18:50:06
+Normal_116.csv,⚠️ Suspect,3,17 Dec 2025 02:28:00
+Normal_115.csv,⚠️ Suspect,8,12 Dec 2024 06:30:42
+Normal_114.csv,✅ Normal,0,
+Normal_113.csv,⚠️ Suspect,4,06 Mar 2026 20:50:02
+Normal_112.csv,⚠️ Suspect,1,26 Apr 2026 11:58:38
+Normal_111.csv,⚠️ Suspect,3,21 Oct 2025 10:47:17
+Normal_110.csv,⚠️ Suspect,1,24 Dec 2025 03:39:54
+Normal_11.csv,✅ Normal,0,
+Normal_109.csv,⚠️ Suspect,6,20 Dec 2024 16:09:46
+Normal_108.csv,⚠️ Suspect,1,25 Jun 2024 20:18:22
+Normal_107.csv,⚠️ Suspect,1,04 Apr 2026 11:12:22
+Normal_106.csv,⚠️ Suspect,4,09 Apr 2025 02:21:38
+Normal_105.csv,⚠️ Suspect,11,17 Sep 2024 12:13:18
+Normal_104.csv,⚠️ Suspect,8,19 Jul 2024 02:13:35
+Normal_103.csv,✅ Normal,0,
+Normal_102.csv,✅ Normal,0,
+Normal_101.csv,⚠️ Suspect,5,06 Feb 2026 11:19:41
+Normal_100.csv,⚠️ Suspect,3,20 Mar 2026 01:17:43
+Normal_10.csv,⚠️ Suspect,5,23 Jul 2025 09:49:06
+Normal_1.csv,⚠️ Suspect,9,05 Jul 2025 10:04:01
