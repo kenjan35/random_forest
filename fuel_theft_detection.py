@@ -75,10 +75,11 @@ def parse_generator(value: object) -> float:
     if pd.isna(value):
         return np.nan
     text = str(value).strip().lower()
-    if "active" in text or re.search(r"\b1\b", text):
-        return 1.0
+    # "inactive" contient "active" : il faut le tester EN PREMIER
     if "inactive" in text or re.search(r"\b0\b", text):
         return 0.0
+    if "active" in text or re.search(r"\b1\b", text):
+        return 1.0
     return np.nan
 
 
@@ -139,82 +140,45 @@ def load_and_prepare(csv_path: str | Path) -> pd.DataFrame:
     return out
 
 
-def train_anomaly_model(df: pd.DataFrame) -> tuple[Pipeline, np.ndarray]:
-    feature_cols = [
-        "fuel_volume",
-        "fuel_volume_change",
-        "abs_fuel_volume_change",
-        "delta_minutes",
-        "fuel_change_rate_per_min",
-        "fuel_volume_roll_mean_6",
-        "fuel_volume_roll_std_6",
-        "fuel_volume_deviation_6",
-        "generator_running",
-        "generator_change",
-        "drop_while_inactive",
-        "drop_while_active",
-    ]
+FEATURE_COLS = [
+    "fuel_volume",
+    "fuel_volume_change",
+    "abs_fuel_volume_change",
+    "delta_minutes",
+    "fuel_change_rate_per_min",
+    "fuel_volume_roll_mean_6",
+    "fuel_volume_roll_std_6",
+    "fuel_volume_deviation_6",
+    "generator_running",
+    "generator_change",
+    "drop_while_inactive",
+    "drop_while_active",
+]
 
-    X = df[feature_cols].fillna(0.0).astype(float)
 
-    model = Pipeline(
+def _build_pipeline() -> Pipeline:
+    return Pipeline(
         steps=[
             ("scaler", StandardScaler()),
-            (
-                "iso",
-                IsolationForest(
-                    n_estimators=200,
-                    contamination="auto",
-                    random_state=42,
-                ),
-            ),
+            ("iso", IsolationForest(n_estimators=200, contamination="auto", random_state=42)),
         ]
     )
 
-    model.fit(X)
+
+def train_anomaly_model(df: pd.DataFrame) -> tuple[Pipeline, np.ndarray]:
+    X = df[FEATURE_COLS].fillna(0.0).astype(float)
+    model = _build_pipeline().fit(X)
     raw_pred = model.predict(X)  # 1 = normal, -1 = anomaly
     anomaly_score = -model.decision_function(X)
-
     return model, np.column_stack([raw_pred, anomaly_score])
 
 
 def score_data(df: pd.DataFrame) -> pd.DataFrame:
-    feature_cols = [
-        "fuel_volume",
-        "fuel_volume_change",
-        "abs_fuel_volume_change",
-        "delta_minutes",
-        "fuel_change_rate_per_min",
-        "fuel_volume_roll_mean_6",
-        "fuel_volume_roll_std_6",
-        "fuel_volume_deviation_6",
-        "generator_running",
-        "generator_change",
-        "drop_while_inactive",
-        "drop_while_active",
-    ]
-
-    X = df[feature_cols].fillna(0.0).astype(float)
-
-    pipeline = Pipeline(
-        steps=[
-            ("scaler", StandardScaler()),
-            (
-                "iso",
-                IsolationForest(
-                    n_estimators=200,
-                    contamination="auto",
-                    random_state=42,
-                ),
-            ),
-        ]
-    )
-    pipeline.fit(X)
+    model, scores = train_anomaly_model(df)
 
     df = df.copy()
-    df["anomaly_flag"] = pipeline.predict(X)
-    df["anomaly_flag"] = df["anomaly_flag"].map({1: 0, -1: 1}).astype(int)
-    df["anomaly_score"] = -pipeline.decision_function(X)
+    df["anomaly_flag"] = (scores[:, 0] == -1).astype(int)
+    df["anomaly_score"] = scores[:, 1]
 
     # A simple rule-based suspicion signal for quick inspection
     df["rule_suspicious"] = (
@@ -222,7 +186,7 @@ def score_data(df: pd.DataFrame) -> pd.DataFrame:
         & (df["fuel_volume_change"] <= df["fuel_volume_change"].quantile(0.05))
     ).astype(int)
 
-    df["final_suspicion"] = ((df["anomaly_flag"] == 1) | (df["rule_suspicious"] == 1)).astype(int)
+    df["final_suspicion"] = (df["anomaly_flag"] | df["rule_suspicious"]).astype(int)
     return df
 
 

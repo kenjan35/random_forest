@@ -1,626 +1,227 @@
-# import joblib
-
-# from src.preprocess import load_csv
-# from src.features import create_features
-# from src.windows import create_windows
-
-# WINDOW_SIZE = 20
-
-# def predict(csv_path):
-#     model = joblib.load("model/random_forest.pkl")
-#     df = load_csv(csv_path)
-#     features = create_features(df)
-#     X = create_windows(features, WINDOW_SIZE)
-#     X = X.reshape(X.shape[0], -1)
-#     prediction = model.predict(X)
-#     return prediction
-
-# import joblib
-
-# from src.preprocess import load_csv
-# from src.features import create_features
-# from src.windows import create_windows
-
-# WINDOW_SIZE = 20
-
-# def predict(csv_path):
-#     model = joblib.load("model/random_forest.pkl")
-#     try:
-#         threshold = joblib.load("model/threshold.pkl")
-#     except FileNotFoundError:
-#         threshold = 0.5
-
-#     df = load_csv(csv_path)
-#     features = create_features(df)
-#     X = create_windows(features, WINDOW_SIZE)
-#     X = X.reshape(X.shape[0], -1)
-
-#     proba = model.predict_proba(X)[:, 1]
-#     prediction = (proba >= threshold).astype(int)
-#     return prediction
-
-# Règle de persistance
-# import numpy as np
-# import joblib
-
-# from src.preprocess import load_csv
-# from src.features import create_features
-# from src.windows import create_windows
-
-# WINDOW_SIZE = 20
-# MIN_CONSECUTIVE = 3  # nombre de fenêtres consécutives positives requises pour alerter
-
-
-# def _smooth(raw_pred, min_consecutive):
-#     """N'alerte que si min_consecutive fenêtres consécutives sont positives.
-#     Réduit fortement les fausses alertes isolées sans perdre en détection
-#     des vrais vols (qui durent toujours plusieurs fenêtres)."""
-#     out = np.zeros_like(raw_pred)
-#     run = 0
-#     for i, v in enumerate(raw_pred):
-#         run = run + 1 if v == 1 else 0
-#         if run >= min_consecutive:
-#             out[i] = 1
-#     return out
-
-
-# def predict(csv_path):
-#     model = joblib.load("model/random_forest.pkl")
-#     try:
-#         threshold = joblib.load("model/threshold.pkl")
-#     except FileNotFoundError:
-#         threshold = 0.5
-
-#     df = load_csv(csv_path)
-#     features = create_features(df)
-#     X = create_windows(features, WINDOW_SIZE)
-#     X = X.reshape(X.shape[0], -1)
-
-#     proba = model.predict_proba(X)[:, 1]
-#     raw_prediction = (proba >= threshold).astype(int)
-#     prediction = _smooth(raw_prediction, MIN_CONSECUTIVE)
-#     return prediction
-
-# import numpy as np
-# import joblib
-# import pandas as pd
-
-# from src.preprocess import load_csv
-# from src.features import create_features
-# from src.windows import create_windows
-
-# WINDOW_SIZE = 20
-# MIN_CONSECUTIVE = 3        # persistance exigée pour une alerte issue du modèle ML
-# RULE_DROP_THRESHOLD = 0.03  # chute > 3% en un seul relevé, générateur à l'arrêt
-# RULE_RECOVERY_WINDOW = 3    # nb de relevés suivants où l'on vérifie un retour au niveau initial
-# RULE_RECOVERY_TOL = 0.3     # tolérance de "retour au niveau initial" (30% de l'amplitude de la chute)
-
-
-# def _smooth(raw_pred, min_consecutive):
-#     out = np.zeros_like(raw_pred)
-#     run = 0
-#     for i, v in enumerate(raw_pred):
-#         run = run + 1 if v == 1 else 0
-#         if run >= min_consecutive:
-#             out[i] = 1
-#     return out
-
-
-# def _rule_based_flags(fuel, status):
-#     """
-#     Filet de sécurité indépendant du modèle ML : détecte toute chute brutale
-#     (> RULE_DROP_THRESHOLD du niveau courant) alors que le générateur est à
-#     l'arrêt, ET qui ne revient PAS au niveau initial dans les relevés
-#     suivants (ce qui écarterait un simple glitch capteur / faux pic).
-#     Retourne un tableau 0/1 par LIGNE (pas par fenêtre).
-#     """
-#     fuel = fuel.astype(float)
-#     delta = np.insert(fuel[1:] - fuel[:-1], 0, 0)
-#     rel_delta = np.divide(delta, fuel, out=np.zeros_like(delta, dtype=float), where=fuel != 0)
-#     inactive = np.array(["Inactive" in s for s in status])
-
-#     flags = np.zeros(len(fuel), dtype=np.int8)
-#     candidates = np.where((rel_delta < -RULE_DROP_THRESHOLD) & inactive)[0]
-#     for idx in candidates:
-#         if idx == 0:
-#             continue
-#         pre_drop_level = fuel[idx - 1]
-#         drop_amount = abs(fuel[idx - 1] - fuel[idx])
-#         end = min(idx + RULE_RECOVERY_WINDOW, len(fuel) - 1)
-#         recovered = any(
-#             abs(fuel[k] - pre_drop_level) <= RULE_RECOVERY_TOL * drop_amount
-#             for k in range(idx, end + 1)
-#         )
-#         if not recovered:
-#             flags[idx] = 1
-#     return flags
-
-
-# def predict(csv_path):
-#     model = joblib.load("model/random_forest.pkl")
-#     try:
-#         threshold = joblib.load("model/threshold.pkl")
-#     except FileNotFoundError:
-#         threshold = 0.5
-
-#     df = pd.read_csv(csv_path)
-#     fuel = df["(MFSX) FSA Fuel Volume (Ltr) [MFSX:01:1:4] (S1)"].to_numpy()
-#     status = df["FSA Generator Running [MFSX:01:1:12] (S2)"].to_numpy()
-
-#     # --- prédiction du modèle ML (par fenêtre) ---
-#     features = create_features(fuel)
-#     X = create_windows(features, WINDOW_SIZE)
-#     Xf = X.reshape(X.shape[0], -1)
-#     proba = model.predict_proba(Xf)[:, 1]
-#     ml_raw = (proba >= threshold).astype(int)
-#     ml_pred = _smooth(ml_raw, MIN_CONSECUTIVE)  # par fenêtre
-
-#     # --- règle de sécurité (par ligne) -> on la convertit en alerte "fenêtre" ---
-#     rule_flags_by_row = _rule_based_flags(fuel, status)
-#     n_windows = len(ml_pred)
-#     rule_pred = np.zeros(n_windows, dtype=np.int8)
-#     for row_idx in np.where(rule_flags_by_row == 1)[0]:
-#         window_start = max(0, row_idx - WINDOW_SIZE + 1)
-#         window_end = min(n_windows - 1, row_idx)
-#         rule_pred[window_start:window_end + 1] = 1
-
-#     # --- combinaison : alerte si le modèle OU la règle le signale ---
-#     final_pred = np.maximum(ml_pred, rule_pred)
-#     return final_pred
-
-# Version latest of Claude
-# import numpy as np
-# import joblib
-# import pandas as pd
-
-# from src.preprocess import load_csv
-# from src.features import create_features
-# from src.windows import create_windows
-
-# WINDOW_SIZE = 20
-# MIN_CONSECUTIVE = 3          # persistance exigée pour une alerte issue du modèle ML
-# ML_MIN_NET_LOSS_FRAC = 0.03   # une alerte ML n'est retenue que si la fenêtre perd >=3% du niveau
-
-# RULE_DROP_THRESHOLD = 0.03    # chute > 3% en un seul relevé, générateur à l'arrêt
-# RULE_RECOVERY_WINDOW = 3
-# RULE_RECOVERY_TOL = 0.3
-
-
-# def _smooth(raw_pred, min_consecutive):
-#     out = np.zeros_like(raw_pred)
-#     run = 0
-#     for i, v in enumerate(raw_pred):
-#         run = run + 1 if v == 1 else 0
-#         if run >= min_consecutive:
-#             out[i] = 1
-#     return out
-
-
-# def _rule_based_flags(fuel, status):
-#     fuel = fuel.astype(float)
-#     delta = np.insert(fuel[1:] - fuel[:-1], 0, 0)
-#     rel_delta = np.divide(delta, fuel, out=np.zeros_like(delta, dtype=float), where=fuel != 0)
-#     inactive = np.array(["Inactive" in s for s in status])
-
-#     flags = np.zeros(len(fuel), dtype=np.int8)
-#     candidates = np.where((rel_delta < -RULE_DROP_THRESHOLD) & inactive)[0]
-#     for idx in candidates:
-#         if idx == 0:
-#             continue
-#         pre_drop_level = fuel[idx - 1]
-#         drop_amount = abs(fuel[idx - 1] - fuel[idx])
-#         end = min(idx + RULE_RECOVERY_WINDOW, len(fuel) - 1)
-#         recovered = any(
-#             abs(fuel[k] - pre_drop_level) <= RULE_RECOVERY_TOL * drop_amount
-#             for k in range(idx, end + 1)
-#         )
-#         if not recovered:
-#             flags[idx] = 1
-#     return flags
-
-
-# def _magnitude_gate(X):
-#     """
-#     Ne retient une alerte du modèle ML QUE SI la fenêtre représente une vraie
-#     perte nette de carburant (pas un ravitaillement, pas du bruit) :
-#       - variation_totale (colonne 1) doit être négative (perte, pas gain)
-#       - et représenter au moins ML_MIN_NET_LOSS_FRAC du niveau de départ
-#     Filtre à la fois les ravitaillements (variation positive) et le bruit de
-#     mesure normal (variation trop faible en proportion).
-#     """
-#     fuel_debut = X[:, 0]
-#     variation_totale = X[:, 1]
-#     net_loss_frac = -variation_totale / np.where(fuel_debut != 0, fuel_debut, 1)
-#     return (variation_totale < 0) & (net_loss_frac >= ML_MIN_NET_LOSS_FRAC)
-
-
-# def predict(csv_path):
-#     model = joblib.load("model/random_forest.pkl")
-#     try:
-#         threshold = joblib.load("model/threshold.pkl")
-#     except FileNotFoundError:
-#         threshold = 0.5
-
-#     df = pd.read_csv(csv_path)
-#     fuel = df["(MFSX) FSA Fuel Volume (Ltr) [MFSX:01:1:4] (S1)"].to_numpy()
-#     status = df["FSA Generator Running [MFSX:01:1:12] (S2)"].to_numpy()
-
-#     # --- prédiction du modèle ML (par fenêtre) ---
-#     features = create_features(fuel)
-#     X = create_windows(features, WINDOW_SIZE)
-#     Xf = X.reshape(X.shape[0], -1)
-#     proba = model.predict_proba(Xf)[:, 1]
-#     ml_raw = (proba >= threshold).astype(int)
-
-#     # on ne garde que les alertes ML correspondant à une vraie perte nette significative
-#     ml_raw = ml_raw & _magnitude_gate(X)
-#     ml_pred = _smooth(ml_raw, MIN_CONSECUTIVE)
-
-#     # --- règle de sécurité (par ligne) -> convertie en alerte "fenêtre" ---
-#     rule_flags_by_row = _rule_based_flags(fuel, status)
-#     n_windows = len(ml_pred)
-#     rule_pred = np.zeros(n_windows, dtype=np.int8)
-#     for row_idx in np.where(rule_flags_by_row == 1)[0]:
-#         window_start = max(0, row_idx - WINDOW_SIZE + 1)
-#         window_end = min(n_windows - 1, row_idx)
-#         rule_pred[window_start:window_end + 1] = 1
-
-#     final_pred = np.maximum(ml_pred, rule_pred)
-#     return final_pred
-
-# Version qui utilise intelligement l'état du générateur
-# import numpy as np
-# import joblib
-# import pandas as pd
-
-# from src.preprocess import load_csv
-# from src.features import create_features
-# from src.windows import create_windows
-
-# WINDOW_SIZE = 20
-# MIN_CONSECUTIVE = 3
-
-# RULE_DROP_MULTIPLIER = 5
-# GATE_LOSS_MULTIPLIER = 2.5
-# RECOVERY_WINDOW = 3
-# RECOVERY_TOL = 0.3
-# MIN_SCALE_FLOOR = 1.0
-# MIN_STATE_ROWS = 10   # nombre minimal de lignes dans CHAQUE état pour juger le statut exploitable
-# SCALE_PERCENTILE = 90  # percentile robuste (moins sensible qu'un 99e a une contamination par l'anomalie elle-meme, surtout sur peu d'echantillons)
-
-
-# def _smooth(raw_pred, min_consecutive):
-#     out = np.zeros_like(raw_pred)
-#     run = 0
-#     for i, v in enumerate(raw_pred):
-#         run = run + 1 if v == 1 else 0
-#         if run >= min_consecutive:
-#             out[i] = 1
-#     return out
-
-
-# def _status_is_reliable(active):
-#     """
-#     Le statut Actif/Inactif n'est exploité que si les DEUX états ont été
-#     observés un nombre suffisant de fois (en nombre absolu de lignes, pas en
-#     pourcentage : un groupe de secours peut légitimement n'être actif que
-#     2-3% du temps sans que son statut soit pour autant douteux).
-#     """
-#     n_active = int(active.sum())
-#     n_inactive = int((~active).sum())
-#     return n_active >= MIN_STATE_ROWS and n_inactive >= MIN_STATE_ROWS
-
-
-# def _site_scales(fuel, active, status_reliable):
-#     delta = np.insert(fuel[1:] - fuel[:-1], 0, 0)
-
-#     if status_reliable:
-#         inactive = ~active
-#         noise_vals = np.abs(delta[inactive])
-#         noise_scale = max(float(np.percentile(noise_vals, SCALE_PERCENTILE)), MIN_SCALE_FLOOR) if len(noise_vals) else MIN_SCALE_FLOOR
-
-#         consumption_vals = -delta[active]
-#         consumption_vals = consumption_vals[consumption_vals > 0]
-#         active_scale = max(float(np.percentile(consumption_vals, SCALE_PERCENTILE)), MIN_SCALE_FLOOR) if len(consumption_vals) else MIN_SCALE_FLOOR
-#     else:
-#         # Mode dégradé : le statut n'est pas informatif sur ce fichier.
-#         # On calibre une échelle UNIQUE à partir de toutes les baisses de
-#         # niveau observées (quel que soit le statut rapporté), et on
-#         # l'applique de façon identique partout. Moins précis qu'un vrai
-#         # statut fiable, mais évite de dépendre d'un signal cassé.
-#         consumption_vals = -delta
-#         consumption_vals = consumption_vals[consumption_vals > 0]
-#         scale = max(float(np.percentile(consumption_vals, SCALE_PERCENTILE)), MIN_SCALE_FLOOR) if len(consumption_vals) else MIN_SCALE_FLOOR
-#         noise_scale = active_scale = scale
-
-#     return noise_scale, active_scale
-
-
-# def _rule_based_flags(fuel, active, noise_scale, status_reliable):
-#     delta = np.insert(fuel[1:] - fuel[:-1], 0, 0)
-#     drop_threshold = RULE_DROP_MULTIPLIER * noise_scale
-
-#     # Si le statut n'est pas fiable, on ne peut plus se limiter aux périodes
-#     # "à l'arrêt" -> on applique la règle sur TOUT le fichier (le seuil de
-#     # dérive vient du mode dégradé, plus conservateur).
-#     eligible = np.ones(len(fuel), dtype=bool) if not status_reliable else ~active
-
-#     flags = np.zeros(len(fuel), dtype=np.int8)
-#     candidates = np.where((delta < -drop_threshold) & eligible)[0]
-#     for idx in candidates:
-#         if idx == 0:
-#             continue
-#         pre_drop_level = fuel[idx - 1]
-#         drop_amount = abs(fuel[idx - 1] - fuel[idx])
-#         end = min(idx + RECOVERY_WINDOW, len(fuel) - 1)
-#         recovered = any(
-#             abs(fuel[k] - pre_drop_level) <= RECOVERY_TOL * drop_amount
-#             for k in range(idx, end + 1)
-#         )
-#         if not recovered:
-#             flags[idx] = 1
-#     return flags
-
-
-# def _magnitude_gate(X, active, noise_scale, active_scale, status_reliable):
-#     n = X.shape[0]
-#     if status_reliable:
-#         cum_active = np.concatenate(([0], np.cumsum(active.astype(int))))
-#         n_active_in_window = cum_active[WINDOW_SIZE:WINDOW_SIZE + n] - cum_active[0:n]
-#         n_inactive_in_window = WINDOW_SIZE - n_active_in_window
-#         expected_ceiling = n_active_in_window * active_scale + n_inactive_in_window * noise_scale
-#     else:
-#         # mode dégradé : une échelle unique appliquée à toute la fenêtre
-#         expected_ceiling = np.full(n, WINDOW_SIZE * noise_scale)
-
-#     variation_totale = X[:, 1]
-#     return variation_totale < -(GATE_LOSS_MULTIPLIER * expected_ceiling)
-
-
-# def predict(csv_path):
-#     model = joblib.load("model/random_forest.pkl")
-#     try:
-#         threshold = joblib.load("model/threshold.pkl")
-#     except FileNotFoundError:
-#         threshold = 0.5
-
-#     df = pd.read_csv(csv_path)
-#     fuel = df["(MFSX) FSA Fuel Volume (Ltr) [MFSX:01:1:4] (S1)"].to_numpy().astype(float)
-#     status = df["FSA Generator Running [MFSX:01:1:12] (S2)"].to_numpy()
-#     active = np.array(["Active" in s for s in status])
-
-#     status_reliable = _status_is_reliable(active)
-#     noise_scale, active_scale = _site_scales(fuel, active, status_reliable)
-
-#     features = create_features(fuel)
-#     X = create_windows(features, WINDOW_SIZE)
-#     Xf = X.reshape(X.shape[0], -1)
-#     proba = model.predict_proba(Xf)[:, 1]
-#     ml_raw = (proba >= threshold).astype(int)
-#     ml_raw = ml_raw & _magnitude_gate(X, active, noise_scale, active_scale, status_reliable)
-#     ml_pred = _smooth(ml_raw, MIN_CONSECUTIVE)
-
-#     rule_flags_by_row = _rule_based_flags(fuel, active, noise_scale, status_reliable)
-#     n_windows = len(ml_pred)
-#     rule_pred = np.zeros(n_windows, dtype=np.int8)
-#     for row_idx in np.where(rule_flags_by_row == 1)[0]:
-#         window_start = max(0, row_idx - WINDOW_SIZE + 1)
-#         window_end = min(n_windows - 1, row_idx)
-#         rule_pred[window_start:window_end + 1] = 1
-
-#     final_pred = np.maximum(ml_pred, rule_pred)
-#     return final_pred
-
-# Version finale qui ignore le statut du générateur
-
-# import numpy as np
-# import joblib
-# import pandas as pd
-
-# from src.preprocess import load_csv
-# from src.features import create_features
-# from src.windows import create_windows
-
-# WINDOW_SIZE = 20
-# MIN_CONSECUTIVE = 3
-
-# RULE_DROP_MULTIPLIER = 5
-# GATE_LOSS_MULTIPLIER = 2.5
-# RECOVERY_WINDOW = 12   # ~1h de recul pour verifier un retour au niveau initial (les faux pics peuvent etre lents)
-# RECOVERY_TOL = 0.3
-# MIN_SCALE_FLOOR = 1.0
-# MIN_STATE_ROWS = 10   # nombre minimal de lignes dans CHAQUE état pour juger le statut exploitable
-# SCALE_PERCENTILE = 90  # percentile robuste (moins sensible qu'un 99e a une contamination par l'anomalie elle-meme, surtout sur peu d'echantillons)
-
-
-# def _smooth(raw_pred, min_consecutive):
-#     out = np.zeros_like(raw_pred)
-#     run = 0
-#     for i, v in enumerate(raw_pred):
-#         run = run + 1 if v == 1 else 0
-#         if run >= min_consecutive:
-#             out[i] = 1
-#     return out
-
-
-# def _status_is_reliable(active):
-#     """
-#     Le statut Actif/Inactif n'est exploité que si les DEUX états ont été
-#     observés un nombre suffisant de fois (en nombre absolu de lignes, pas en
-#     pourcentage : un groupe de secours peut légitimement n'être actif que
-#     2-3% du temps sans que son statut soit pour autant douteux).
-#     """
-#     n_active = int(active.sum())
-#     n_inactive = int((~active).sum())
-#     return n_active >= MIN_STATE_ROWS and n_inactive >= MIN_STATE_ROWS
-
-
-# def _site_scales(fuel, active, status_reliable):
-#     delta = np.insert(fuel[1:] - fuel[:-1], 0, 0)
-
-#     if status_reliable:
-#         inactive = ~active
-#         noise_vals = np.abs(delta[inactive])
-#         noise_scale = max(float(np.percentile(noise_vals, SCALE_PERCENTILE)), MIN_SCALE_FLOOR) if len(noise_vals) else MIN_SCALE_FLOOR
-
-#         consumption_vals = -delta[active]
-#         consumption_vals = consumption_vals[consumption_vals > 0]
-#         active_scale = max(float(np.percentile(consumption_vals, SCALE_PERCENTILE)), MIN_SCALE_FLOOR) if len(consumption_vals) else MIN_SCALE_FLOOR
-#     else:
-#         # Mode dégradé : le statut n'est pas informatif sur ce fichier.
-#         # On calibre une échelle UNIQUE à partir de toutes les baisses de
-#         # niveau observées (quel que soit le statut rapporté), et on
-#         # l'applique de façon identique partout. Moins précis qu'un vrai
-#         # statut fiable, mais évite de dépendre d'un signal cassé.
-#         consumption_vals = -delta
-#         consumption_vals = consumption_vals[consumption_vals > 0]
-#         scale = max(float(np.percentile(consumption_vals, SCALE_PERCENTILE)), MIN_SCALE_FLOOR) if len(consumption_vals) else MIN_SCALE_FLOOR
-#         noise_scale = active_scale = scale
-
-#     return noise_scale, active_scale
-
-
-# def _rule_based_flags(fuel, active, noise_scale, active_scale, status_reliable):
-#     """
-#     Détecte toute chute brutale et non récupérée, que le générateur soit
-#     à l'arrêt OU en marche. Le seuil s'adapte selon l'état :
-#       - à l'arrêt   -> comparé au bruit habituel (noise_scale), très strict
-#       - en marche   -> comparé à la consommation habituelle (active_scale),
-#                        car une grosse conso active est normale ; seul un
-#                        écart *au-delà* de ce qui est déjà consommé d'habitude
-#                        est suspect.
-#     En mode dégradé (statut non fiable), une échelle unique est utilisée
-#     partout (déjà calculée dans _site_scales).
-#     """
-#     delta = np.insert(fuel[1:] - fuel[:-1], 0, 0)
-
-#     if status_reliable:
-#         threshold_per_row = np.where(active, active_scale, noise_scale) * RULE_DROP_MULTIPLIER
-#     else:
-#         threshold_per_row = np.full(len(fuel), noise_scale * RULE_DROP_MULTIPLIER)
-
-#     flags = np.zeros(len(fuel), dtype=np.int8)
-#     candidates = np.where(delta < -threshold_per_row)[0]
-#     for idx in candidates:
-#         if idx == 0:
-#             continue
-#         pre_drop_level = fuel[idx - 1]
-#         drop_amount = abs(fuel[idx - 1] - fuel[idx])
-#         end = min(idx + RECOVERY_WINDOW, len(fuel) - 1)
-#         recovered = any(
-#             abs(fuel[k] - pre_drop_level) <= RECOVERY_TOL * drop_amount
-#             for k in range(idx, end + 1)
-#         )
-#         if not recovered:
-#             flags[idx] = 1
-#     return flags
-
-
-# def _magnitude_gate(X, active, noise_scale, active_scale, status_reliable):
-#     n = X.shape[0]
-#     if status_reliable:
-#         cum_active = np.concatenate(([0], np.cumsum(active.astype(int))))
-#         n_active_in_window = cum_active[WINDOW_SIZE:WINDOW_SIZE + n] - cum_active[0:n]
-#         n_inactive_in_window = WINDOW_SIZE - n_active_in_window
-#         expected_ceiling = n_active_in_window * active_scale + n_inactive_in_window * noise_scale
-#     else:
-#         # mode dégradé : une échelle unique appliquée à toute la fenêtre
-#         expected_ceiling = np.full(n, WINDOW_SIZE * noise_scale)
-
-#     variation_totale = X[:, 1]
-#     return variation_totale < -(GATE_LOSS_MULTIPLIER * expected_ceiling)
-
-
-# def predict(csv_path):
-#     model = joblib.load("model/random_forest.pkl")
-#     try:
-#         threshold = joblib.load("model/threshold.pkl")
-#     except FileNotFoundError:
-#         threshold = 0.5
-
-#     df = pd.read_csv(csv_path)
-#     fuel = df["(MFSX) FSA Fuel Volume (Ltr) [MFSX:01:1:4] (S1)"].to_numpy().astype(float)
-#     status = df["FSA Generator Running [MFSX:01:1:12] (S2)"].to_numpy()
-#     active = np.array(["Active" in s for s in status])
-
-#     status_reliable = _status_is_reliable(active)
-#     noise_scale, active_scale = _site_scales(fuel, active, status_reliable)
-
-#     features = create_features(fuel)
-#     X = create_windows(features, WINDOW_SIZE)
-#     Xf = X.reshape(X.shape[0], -1)
-#     proba = model.predict_proba(Xf)[:, 1]
-#     ml_raw = (proba >= threshold).astype(int)
-#     ml_raw = ml_raw & _magnitude_gate(X, active, noise_scale, active_scale, status_reliable)
-#     ml_pred = _smooth(ml_raw, MIN_CONSECUTIVE)
-
-#     rule_flags_by_row = _rule_based_flags(fuel, active, noise_scale, active_scale, status_reliable)
-#     n_windows = len(ml_pred)
-#     rule_pred = np.zeros(n_windows, dtype=np.int8)
-#     for row_idx in np.where(rule_flags_by_row == 1)[0]:
-#         window_start = max(0, row_idx - WINDOW_SIZE + 1)
-#         window_end = min(n_windows - 1, row_idx)
-#         rule_pred[window_start:window_end + 1] = 1
-
-#     final_pred = np.maximum(ml_pred, rule_pred)
-#     return final_pred
+import os
+from functools import lru_cache
 
 import numpy as np
 import joblib
 import pandas as pd
+from numpy.lib.stride_tricks import sliding_window_view
 
-from src.preprocess import load_csv
+from src.config import MODEL_PATH, THRESHOLD_PATH, DEFAULT_THRESHOLD, WINDOW_SIZE
+from src.preprocess import load_site
 from src.features import create_features
 from src.windows import create_windows
 
-WINDOW_SIZE = 20
 MIN_CONSECUTIVE = 3
 
-RULE_DROP_MULTIPLIER = 5
+RULE_WINDOW_SIZE = 12
+RULE_MIN_LOSS = 15.0
+RULE_RECOVERY_WINDOW = 288   # 24 h à raison d'une mesure toutes les 5 minutes
+RULE_RECOVERY_TOL = 0.3
+RULE_FILTER_WINDOW = 13      # ~1 h pour neutraliser les plateaux parasites courts
+RULE_OSCILLATION_STEP = 1.0
+RULE_MAX_SIGN_CHANGES = 3
+RULE_OSCILLATION_LOOKAHEAD = 6
+RULE_LOCAL_OSCILLATION_WINDOW = 60
+RULE_LOCAL_OSCILLATION_AMPLITUDE = 30.0
+RULE_LOCAL_OSCILLATION_RETURN_TOL = 10.0
+RULE_OPPOSITE_RETURN_TOL = 10.0
+RULE_PERSISTENT_STEP_MIN_LOSS = 50.0
 GATE_LOSS_MULTIPLIER = 2.5
-RECOVERY_WINDOW = 12   # ~1h de recul pour verifier un retour au niveau initial (les faux pics peuvent etre lents)
-RECOVERY_TOL = 0.3
 MIN_SCALE_FLOOR = 1.0
-MIN_STATE_ROWS = 10   # nombre minimal de lignes dans CHAQUE état pour juger le statut exploitable
-SCALE_PERCENTILE_LOW = 90    # utilisé quand peu d'échantillons (risque de contamination par l'anomalie elle-même)
-SCALE_PERCENTILE_HIGH = 97   # utilisé quand assez d'échantillons pour être robuste (certains sites sont naturellement plus "bruyants")
+MIN_STATE_ROWS = 10           # nb minimal de lignes dans CHAQUE état pour juger le statut exploitable
+SCALE_PERCENTILE_LOW = 90     # peu d'échantillons : limite la contamination par l'anomalie elle-même
+SCALE_PERCENTILE_HIGH = 97    # beaucoup d'échantillons : tolère les sites naturellement bruyants
 MIN_SAMPLES_FOR_HIGH_PERCENTILE = 100
+GLITCH_REFERENCE_FRACTION = 0.3  # une coupure est confirmée si le niveau voisin dépasse 30% du P95
 
+# Constantes conservées pour compatibilité (plus utilisées par la logique actuelle)
+RULE_DROP_MULTIPLIER = 5
+RULE_FILE_OSCILLATION_DEVIATION = 15.0
+RULE_FILE_OSCILLATION_BASELINE_TOL = 10.0
+
+_CHUNK = 50_000  # taille de bloc pour les calculs vectorisés gourmands en mémoire
+
+
+# ---------------------------------------------------------------------------
+# Chargement du modèle (mis en cache, rechargé automatiquement si le .pkl change)
+# ---------------------------------------------------------------------------
+
+def _mtime(path):
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return None
+
+
+@lru_cache(maxsize=1)
+def _load_model_cached(model_mtime, threshold_mtime):
+    model = joblib.load(MODEL_PATH)
+    threshold = float(joblib.load(THRESHOLD_PATH)) if threshold_mtime is not None else DEFAULT_THRESHOLD
+    return model, threshold
+
+
+def load_model():
+    """Retourne (modèle, seuil). Le disque n'est relu que si les fichiers ont changé."""
+    model_mtime = _mtime(MODEL_PATH)
+    if model_mtime is None:
+        raise FileNotFoundError(f"Modèle introuvable : {MODEL_PATH}")
+    return _load_model_cached(model_mtime, _mtime(THRESHOLD_PATH))
+
+
+# ---------------------------------------------------------------------------
+# Outils génériques
+# ---------------------------------------------------------------------------
 
 def _smooth(raw_pred, min_consecutive):
+    """N'alerte qu'à partir de la `min_consecutive`-ième fenêtre positive consécutive."""
+    raw_pred = np.asarray(raw_pred)
     out = np.zeros_like(raw_pred)
-    run = 0
-    for i, v in enumerate(raw_pred):
-        run = run + 1 if v == 1 else 0
-        if run >= min_consecutive:
-            out[i] = 1
+    if len(raw_pred) == 0:
+        return out
+    idx = np.arange(len(raw_pred))
+    last_reset = np.maximum.accumulate(np.where(raw_pred == 1, -1, idx))
+    out[(idx - last_reset) >= min_consecutive] = 1
     return out
+
+
+def _window_counts(row_mask, window_size):
+    """Nombre de lignes marquées dans chaque fenêtre [i, i+window_size-1]."""
+    n_windows = max(0, len(row_mask) - window_size + 1)
+    cs = np.concatenate(([0], np.cumsum(row_mask, dtype=np.int64)))
+    return cs[window_size:window_size + n_windows] - cs[:n_windows]
+
+
+def _rows_to_windows(row_mask, window_size):
+    """Marque les fenêtres qui contiennent au moins une ligne marquée."""
+    return _window_counts(row_mask, window_size) > 0
+
+
+# Alias de l'ancien nom (au cas où il serait importé ailleurs)
+_glitch_window_mask = _rows_to_windows
+
+
+def _dilate(starts, length, n):
+    """Masque de lignes : True sur [s, s+length-1] pour chaque s de `starts`."""
+    marks = np.zeros(n + 1, dtype=np.int32)
+    np.add.at(marks, starts, 1)
+    np.add.at(marks, np.minimum(starts + length, n), -1)
+    return np.cumsum(marks[:-1]) > 0
+
+
+def _median_filter(fuel, window_size):
+    """Supprime les pics alternés courts sans lisser une baisse durable."""
+    if len(fuel) < window_size:
+        return fuel.copy()
+    radius = window_size // 2
+    padded = np.pad(fuel, (radius, radius), mode="edge")
+    return np.median(sliding_window_view(padded, window_size), axis=1)
+
+
+# ---------------------------------------------------------------------------
+# Statut du générateur
+# ---------------------------------------------------------------------------
+
+def _is_active_value(value):
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return False  # statut manquant : on ne le compte pas comme "en marche"
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, (int, float, np.integer, np.floating)):
+        return value != 0
+    text = str(value).strip().casefold()
+    if text in {"0", "false", "inactive", "off", "stopped"} or "inactive" in text:
+        return False
+    return text in {"1", "true", "active", "on", "running"} or "active" in text
+
+
+def parse_status(status, n_rows):
+    """Convertit la colonne de statut en booléens (une seule évaluation par valeur distincte)."""
+    if status is None:
+        return np.zeros(n_rows, dtype=bool)
+    series = pd.Series(status)
+    mapping = {v: _is_active_value(v) for v in series.dropna().unique()}
+    return series.map(mapping).fillna(False).to_numpy(dtype=bool)
 
 
 def _status_is_reliable(active):
     """
     Le statut Actif/Inactif n'est exploité que si les DEUX états ont été
-    observés un nombre suffisant de fois (en nombre absolu de lignes, pas en
-    pourcentage : un groupe de secours peut légitimement n'être actif que
-    2-3% du temps sans que son statut soit pour autant douteux).
+    observés un nombre suffisant de fois (en nombre absolu de lignes : un
+    groupe de secours peut légitimement n'être actif que 2-3% du temps).
     """
     n_active = int(active.sum())
-    n_inactive = int((~active).sum())
-    return n_active >= MIN_STATE_ROWS and n_inactive >= MIN_STATE_ROWS
+    return n_active >= MIN_STATE_ROWS and (len(active) - n_active) >= MIN_STATE_ROWS
 
+
+# ---------------------------------------------------------------------------
+# Coupures capteur (relevés figés à 0)
+# ---------------------------------------------------------------------------
+
+def find_zero_segments(fuel, include_leading=False):
+    """
+    Segments (start, end) de relevés consécutifs à exactement 0.
+    Par défaut, un segment qui commence à la ligne 0 est ignoré (pas de
+    niveau "avant" auquel le comparer).
+    """
+    is_zero = np.concatenate(([0], (np.asarray(fuel) == 0).astype(np.int8), [0]))
+    edges = np.diff(is_zero)
+    starts = np.flatnonzero(edges == 1)
+    ends = np.flatnonzero(edges == -1) - 1
+    if not include_leading:
+        keep = starts > 0
+        starts, ends = starts[keep], ends[keep]
+    return list(zip(starts.tolist(), ends.tolist()))
+
+
+def _find_dropout_segments(fuel):
+    return find_zero_segments(fuel, include_leading=False)
+
+
+def _segments_mask(segments, n):
+    mask = np.zeros(n, dtype=bool)
+    for start, end in segments:
+        mask[start:end + 1] = True
+    return mask
+
+
+def _confirmed_glitch_segments(fuel, segments):
+    """Coupures dont le niveau juste avant OU juste après est un niveau réel."""
+    if len(fuel) == 0:
+        return []
+    reference = float(np.quantile(fuel, 0.95)) or 1.0
+    threshold = GLITCH_REFERENCE_FRACTION * reference
+    n = len(fuel)
+    confirmed = []
+    for start, end in segments:
+        before = fuel[start - 1] if start > 0 else 0.0
+        after = fuel[end + 1] if end + 1 < n else 0.0
+        if before >= threshold or after >= threshold:
+            confirmed.append((start, end))
+    return confirmed
+
+
+def confirmed_glitch_mask(fuel, include_leading=False):
+    """
+    Masque (par ligne) des coupures capteur confirmées : relevés à 0 dont le
+    niveau juste avant ou juste après est un niveau réel (>= 30% du P95).
+    Utilisé aussi par l'interface pour classer les alertes en "Data incomplete".
+    """
+    fuel = np.asarray(fuel, dtype=float)
+    segments = find_zero_segments(fuel, include_leading)
+    return _segments_mask(_confirmed_glitch_segments(fuel, segments), len(fuel))
+
+
+# ---------------------------------------------------------------------------
+# Échelles de bruit / consommation propres au site
+# ---------------------------------------------------------------------------
 
 def _robust_scale(values):
     """
-    Calcule une échelle de bruit/consommation robuste à partir d'un tableau
-    de valeurs positives. Le percentile utilisé s'adapte au nombre
-    d'échantillons disponibles :
-      - PEU d'échantillons (< MIN_SAMPLES_FOR_HIGH_PERCENTILE) -> percentile
-        bas (90e) : avec peu de données, une seule anomalie extrême peut
-        "devenir" le 99e percentile et polluer sa propre détection.
-      - BEAUCOUP d'échantillons -> percentile haut (99e) : plus robuste, et
-        certains sites ont un bruit de mesure naturellement plus fort
-        (vibration, effets de température) qu'un 90e percentile sous-estime
-        largement s'il n'apparaît que sur une minorité des relevés.
+    Percentile adapté au nombre d'échantillons :
+      - peu (< MIN_SAMPLES_FOR_HIGH_PERCENTILE) -> SCALE_PERCENTILE_LOW (90e) :
+        une seule anomalie extrême ne doit pas définir sa propre échelle ;
+      - beaucoup -> SCALE_PERCENTILE_HIGH (97e) : couvre les sites dont le
+        bruit de mesure est naturellement plus fort.
     """
     if len(values) == 0:
         return MIN_SCALE_FLOOR
@@ -628,165 +229,217 @@ def _robust_scale(values):
     return max(float(np.percentile(values, pct)), MIN_SCALE_FLOOR)
 
 
-def _site_scales(fuel, active, status_reliable):
-    delta = np.insert(fuel[1:] - fuel[:-1], 0, 0)
+def _site_scales(fuel, active, status_reliable, dropout_mask):
+    delta = np.diff(fuel, prepend=fuel[:1]) if len(fuel) else fuel.copy()
 
-    dropout_segments = _find_dropout_segments(fuel)
-    dropout_mask = np.zeros(len(fuel), dtype=bool)
-    for (s, e) in dropout_segments:
-        dropout_mask[s:e + 1] = True
-    # les transitions qui touchent une coupure capteur ne doivent pas non
-    # plus polluer le calcul du bruit "normal" (ex: 89 -> 0 ou 0 -> 87)
-    touches_dropout = dropout_mask | np.roll(dropout_mask, 1)
-    valid = ~touches_dropout
+    # une transition qui touche une coupure (ex : 89 -> 0 ou 0 -> 87) ne doit
+    # pas polluer le calcul du bruit "normal"
+    previous_is_dropout = np.concatenate(([False], dropout_mask[:-1]))
+    valid = ~(dropout_mask | previous_is_dropout)
 
     if status_reliable:
-        inactive = ~active
-        noise_vals = np.abs(delta[inactive & valid])
-        noise_scale = _robust_scale(noise_vals)
-
-        consumption_vals = -delta[active & valid]
-        consumption_vals = consumption_vals[consumption_vals > 0]
-        active_scale = _robust_scale(consumption_vals)
+        noise_scale = _robust_scale(np.abs(delta[~active & valid]))
+        consumption = -delta[active & valid]
+        active_scale = _robust_scale(consumption[consumption > 0])
     else:
-        # Mode dégradé : le statut n'est pas informatif sur ce fichier.
-        # On calibre une échelle UNIQUE à partir de toutes les baisses de
-        # niveau observées (quel que soit le statut rapporté), et on
-        # l'applique de façon identique partout. Moins précis qu'un vrai
-        # statut fiable, mais évite de dépendre d'un signal cassé.
-        consumption_vals = -delta[valid]
-        consumption_vals = consumption_vals[consumption_vals > 0]
-        scale = _robust_scale(consumption_vals)
-        noise_scale = active_scale = scale
+        # Mode dégradé : statut non informatif -> une échelle unique calibrée
+        # sur toutes les baisses observées.
+        consumption = -delta[valid]
+        noise_scale = active_scale = _robust_scale(consumption[consumption > 0])
 
     return noise_scale, active_scale
 
 
-def _find_dropout_segments(fuel):
-    """
-    Repère les coupures capteur : des relevés bloqués à exactement 0 alors
-    qu'il y avait du carburant juste avant. Une vraie jauge ne tombe jamais
-    exactement à 0 instantanément puis n'y reste pas figée pendant des
-    dizaines de relevés -- c'est la signature d'un capteur hors ligne, pas
-    d'un niveau réel.
-    """
-    is_zero = fuel == 0
-    segments = []
+# ---------------------------------------------------------------------------
+# Masques de suppression / confirmation
+# ---------------------------------------------------------------------------
+
+def _local_returning_excursion_mask(fuel):
+    """Lignes appartenant à une excursion locale forte qui revient à son niveau initial."""
     n = len(fuel)
-    i = 0
-    while i < n:
-        if is_zero[i]:
-            start = i
-            while i < n and is_zero[i]:
-                i += 1
-            end = i - 1
-            if start > 0:  # pas de niveau "avant" à comparer si le fichier commence par des zéros
-                segments.append((start, end))
-        else:
-            i += 1
-    return segments
+    window = RULE_LOCAL_OSCILLATION_WINDOW
+    amplitude_min = RULE_LOCAL_OSCILLATION_AMPLITUDE
+    if n < window:
+        return np.zeros(n, dtype=bool)
+
+    all_segments = sliding_window_view(fuel, window)
+    hit_starts = []
+    for offset in range(0, len(all_segments), _CHUNK):
+        seg = all_segments[offset:offset + _CHUNK]
+        before = np.median(seg[:, :8], axis=1)
+        after = np.median(seg[:, -8:], axis=1)
+        amplitude = seg.max(axis=1) - seg.min(axis=1)
+        high = (seg >= (before + amplitude_min)[:, None]).sum(axis=1)
+        low = (seg <= (before - amplitude_min)[:, None]).sum(axis=1)
+        hit = (
+            (amplitude >= amplitude_min)
+            & (np.abs(after - before) <= RULE_LOCAL_OSCILLATION_RETURN_TOL)
+            & ((high >= 3) | (low >= 3))
+        )
+        hit_starts.append(np.flatnonzero(hit) + offset)
+
+    return _dilate(np.concatenate(hit_starts), window, n)
 
 
-def _rule_based_flags(fuel, active, noise_scale, active_scale, status_reliable):
+def _persistent_step_loss_mask(fuel, dropout_mask, minimum_loss=RULE_PERSISTENT_STEP_MIN_LOSS):
+    """Chutes brutales, précédées d'un niveau stable, qui restent au nouveau niveau."""
+    n = len(fuel)
+    mask = np.zeros(n, dtype=bool)
+    if n < 24:  # il faut 20 relevés stables avant et 3 après
+        return mask
+
+    idx = np.arange(20, n - 3)                                    # indices candidats
+    stable = np.ptp(sliding_window_view(fuel, 20), axis=1)[idx - 20] <= 10.0
+    median3 = np.median(sliding_window_view(fuel, 3), axis=1)     # median3[j] = médiane de fuel[j:j+3]
+    before = median3[idx - 3]
+    loss = before - median3[idx]
+    no_dropout = _window_counts(dropout_mask, 4)[idx - 1] == 0    # lignes idx-1 .. idx+2
+
+    for k in np.flatnonzero(stable & no_dropout & (loss > minimum_loss)):
+        i = idx[k]
+        tolerance = max(2.0, RULE_RECOVERY_TOL * loss[k])
+        recovery_end = min(n, i + 1 + RULE_RECOVERY_WINDOW)
+        if not np.any(np.abs(fuel[i + 3:recovery_end] - before[k]) <= tolerance):
+            mask[i:i + RULE_WINDOW_SIZE] = True
+    return mask
+
+
+# ---------------------------------------------------------------------------
+# Règle principale
+# ---------------------------------------------------------------------------
+
+def _is_oscillating_window(fuel):
+    """Succession de hausses et baisses fortes de la jauge."""
+    delta = np.diff(fuel)
+    significant = delta[np.abs(delta) >= RULE_OSCILLATION_STEP]
+    if len(significant) < RULE_MAX_SIGN_CHANGES + 1:
+        return False
+    return np.sum(significant[1:] * significant[:-1] < 0) >= RULE_MAX_SIGN_CHANGES
+
+
+def _has_opposite_excursion(fuel, loss):
+    """Pic (ou creux) important qui revient avant la fin de la fenêtre."""
+    if len(fuel) < 3 or loss <= RULE_MIN_LOSS:
+        return False
+    if abs(fuel[-1] - fuel[0]) > RULE_OPPOSITE_RETURN_TOL:
+        return False
+    last = len(fuel) - 1
+    peak = int(np.argmax(fuel))
+    if 0 < peak < last and fuel[peak] - fuel[0] > RULE_MIN_LOSS and fuel[peak] - fuel[-1] > RULE_MIN_LOSS:
+        return True
+    trough = int(np.argmin(fuel))
+    return 0 < trough < last and fuel[0] - fuel[trough] > RULE_MIN_LOSS and fuel[-1] - fuel[trough] > RULE_MIN_LOSS
+
+
+def _rule_based_flags(fuel, dropout_mask):
     """
-    Détecte toute chute brutale et non récupérée, que le générateur soit
-    à l'arrêt OU en marche. Le seuil s'adapte selon l'état :
-      - à l'arrêt   -> comparé au bruit habituel (noise_scale), très strict
-      - en marche   -> comparé à la consommation habituelle (active_scale)
-    Les coupures capteur (relevés à 0) sont traitées séparément : on compare
-    le niveau juste avant et juste après la coupure, sans limite de temps
-    fixe, plutôt que d'essayer de suivre les relevés invalides pendant la
-    panne elle-même.
+    Signale (par ligne) une perte nette de plus de RULE_MIN_LOSS litres sur
+    RULE_WINDOW_SIZE relevés, quel que soit l'état du générateur, si le
+    niveau ne revient pas près du niveau de départ dans les 24 h suivantes.
+    Fenêtre glissante : détecte aussi les pertes progressives.
     """
     n = len(fuel)
-    delta = np.insert(fuel[1:] - fuel[:-1], 0, 0)
-
-    if status_reliable:
-        threshold_per_row = np.where(active, active_scale, noise_scale) * RULE_DROP_MULTIPLIER
-    else:
-        threshold_per_row = np.full(n, noise_scale * RULE_DROP_MULTIPLIER)
-
-    dropout_segments = _find_dropout_segments(fuel)
-    dropout_mask = np.zeros(n, dtype=bool)
-    for (s, e) in dropout_segments:
-        dropout_mask[s:e + 1] = True
-
     flags = np.zeros(n, dtype=np.int8)
+    if n < RULE_WINDOW_SIZE:
+        return flags
 
-    # 1) chutes classiques, en ignorant les transitions dues a une coupure capteur
-    candidates = np.where((delta < -threshold_per_row) & ~dropout_mask)[0]
-    for idx in candidates:
-        if idx == 0 or dropout_mask[idx - 1]:
+    filtered = _median_filter(fuel, RULE_FILTER_WINDOW)
+    starts = np.arange(n - RULE_WINDOW_SIZE + 1)
+    ends = starts + RULE_WINDOW_SIZE - 1
+    loss = filtered[starts] - filtered[ends]
+
+    # filtres vectorisés les moins coûteux d'abord ; les tests restants ne
+    # sont évalués que sur les rares fenêtres candidates
+    candidates = (loss > RULE_MIN_LOSS) & (_window_counts(dropout_mask, RULE_WINDOW_SIZE) == 0)
+
+    for start in np.flatnonzero(candidates):
+        end = start + RULE_WINDOW_SIZE - 1
+        if _is_oscillating_window(fuel[start:end + 1]):
             continue
-        pre_drop_level = fuel[idx - 1]
-        drop_amount = abs(fuel[idx - 1] - fuel[idx])
-        end = min(idx + RECOVERY_WINDOW, n - 1)
-        recovered = any(
-            abs(fuel[k] - pre_drop_level) <= RECOVERY_TOL * drop_amount
-            for k in range(idx, end + 1)
-            if not dropout_mask[k]
+        window_loss = loss[start]
+        lo = max(0, start - RULE_OSCILLATION_LOOKAHEAD)
+        hi = min(n, end + 1 + RULE_OSCILLATION_LOOKAHEAD)
+        if _has_opposite_excursion(fuel[lo:hi], window_loss):
+            continue
+
+        tolerance = max(2.0, RULE_RECOVERY_TOL * window_loss)
+        recovery_end = min(n, end + 1 + RULE_RECOVERY_WINDOW)
+        recovered = np.any(
+            ~dropout_mask[end + 1:recovery_end]
+            & (np.abs(filtered[end + 1:recovery_end] - filtered[start]) <= tolerance)
         )
         if not recovered:
-            flags[idx] = 1
-
-    # 2) coupures capteur : on compare le niveau juste avant/apres, sans limite de temps
-    for (start, end) in dropout_segments:
-        if end + 1 >= n:
-            continue  # coupure jusqu'a la fin du fichier, rien a comparer apres
-        pre_level = fuel[start - 1]
-        post_level = fuel[end + 1]
-        drop_amount = pre_level - post_level
-        if drop_amount > threshold_per_row[end + 1] and abs(post_level - pre_level) > RECOVERY_TOL * drop_amount:
-            flags[end + 1] = 1  # perte confirmee une fois les donnees valides revenues
+            flags[start:end + 1] = 1
 
     return flags
 
 
 def _magnitude_gate(X, active, noise_scale, active_scale, status_reliable):
+    """Ne garde une alerte ML que si la perte de la fenêtre dépasse nettement la perte attendue."""
     n = X.shape[0]
     if status_reliable:
-        cum_active = np.concatenate(([0], np.cumsum(active.astype(int))))
-        n_active_in_window = cum_active[WINDOW_SIZE:WINDOW_SIZE + n] - cum_active[0:n]
-        n_inactive_in_window = WINDOW_SIZE - n_active_in_window
-        expected_ceiling = n_active_in_window * active_scale + n_inactive_in_window * noise_scale
+        n_active = _window_counts(active, WINDOW_SIZE)[:n]
+        expected_ceiling = n_active * active_scale + (WINDOW_SIZE - n_active) * noise_scale
     else:
-        # mode dégradé : une échelle unique appliquée à toute la fenêtre
         expected_ceiling = np.full(n, WINDOW_SIZE * noise_scale)
+    return X[:, 1] < -(GATE_LOSS_MULTIPLIER * expected_ceiling)
 
-    variation_totale = X[:, 1]
-    return variation_totale < -(GATE_LOSS_MULTIPLIER * expected_ceiling)
 
+# ---------------------------------------------------------------------------
+# Point d'entrée
+# ---------------------------------------------------------------------------
 
 def predict(csv_path):
-    model = joblib.load("model/random_forest.pkl")
-    try:
-        threshold = joblib.load("model/threshold.pkl")
-    except FileNotFoundError:
-        threshold = 0.5
+    """Retourne un tableau 0/1 par fenêtre de WINDOW_SIZE lignes (fenêtre i = lignes i..i+19)."""
+    load_model()  # échoue tôt (FileNotFoundError) si le modèle est absent
+    fuel, status, _ = load_site(csv_path)
+    return predict_arrays(fuel, status)
 
-    df = pd.read_csv(csv_path)
-    fuel = df["(MFSX) FSA Fuel Volume (Ltr) [MFSX:01:1:4] (S1)"].to_numpy().astype(float)
-    status = df["FSA Generator Running [MFSX:01:1:12] (S2)"].to_numpy()
-    active = np.array(["Active" in s for s in status])
 
+def predict_arrays(fuel, status=None):
+    """
+    Même chose que predict(), à partir de données déjà chargées : évite de
+    relire le CSV quand l'appelant l'a déjà ouvert (interface graphique).
+    `fuel` doit être nettoyé (voir src.preprocess.clean_fuel).
+    """
+    model, threshold = load_model()
+
+    fuel = np.asarray(fuel, dtype=float)
+    n = len(fuel)
+    n_windows = max(0, n - WINDOW_SIZE + 1)
+    if n_windows == 0:
+        return np.zeros(0, dtype=np.int64)
+
+    active = parse_status(status, n)
     status_reliable = _status_is_reliable(active)
-    noise_scale, active_scale = _site_scales(fuel, active, status_reliable)
 
-    features = create_features(fuel)
-    X = create_windows(features, WINDOW_SIZE)
-    Xf = X.reshape(X.shape[0], -1)
-    proba = model.predict_proba(Xf)[:, 1]
-    ml_raw = (proba >= threshold).astype(int)
-    ml_raw = ml_raw & _magnitude_gate(X, active, noise_scale, active_scale, status_reliable)
-    ml_pred = _smooth(ml_raw, MIN_CONSECUTIVE)
+    dropout_segments = _find_dropout_segments(fuel)
+    dropout_mask = _segments_mask(dropout_segments, n)
+    confirmed_glitches = _confirmed_glitch_segments(fuel, dropout_segments)
+    glitch_windows = _rows_to_windows(_segments_mask(confirmed_glitches, n), WINDOW_SIZE)
 
-    rule_flags_by_row = _rule_based_flags(fuel, active, noise_scale, active_scale, status_reliable)
-    n_windows = len(ml_pred)
-    rule_pred = np.zeros(n_windows, dtype=np.int8)
-    for row_idx in np.where(rule_flags_by_row == 1)[0]:
-        window_start = max(0, row_idx - WINDOW_SIZE + 1)
-        window_end = min(n_windows - 1, row_idx)
-        rule_pred[window_start:window_end + 1] = 1
+    noise_scale, active_scale = _site_scales(fuel, active, status_reliable, dropout_mask)
+
+    # --- modèle ML (par fenêtre) ---
+    X = create_windows(create_features(fuel), WINDOW_SIZE)
+    proba = model.predict_proba(X)[:, 1]
+    ml_raw = (proba >= threshold) & _magnitude_gate(X, active, noise_scale, active_scale, status_reliable)
+    ml_raw[glitch_windows] = False
+    ml_pred = _smooth(ml_raw.astype(np.int64), MIN_CONSECUTIVE)
+
+    # --- règle (par ligne) convertie en fenêtres ---
+    rule_pred = _rows_to_windows(_rule_based_flags(fuel, dropout_mask), WINDOW_SIZE).astype(np.int8)
 
     final_pred = np.maximum(ml_pred, rule_pred)
+    final_pred[glitch_windows] = 0
+    final_pred[_rows_to_windows(_local_returning_excursion_mask(fuel), WINDOW_SIZE)] = 0
+
+    # une chute persistante confirmée par la règle reste signalée malgré les suppressions
+    persistent = _rows_to_windows(
+        _persistent_step_loss_mask(fuel, dropout_mask, minimum_loss=RULE_MIN_LOSS), WINDOW_SIZE
+    )
+    final_pred[persistent] = np.maximum(final_pred[persistent], rule_pred[persistent])
+
+    if len(confirmed_glitches) >= 2:
+        final_pred[:] = 0
     return final_pred

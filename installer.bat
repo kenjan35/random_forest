@@ -25,7 +25,7 @@ if errorlevel 1 (
 
 call venv\Scripts\activate.bat
 python -m pip install --upgrade pip
-pip install -r requirements-gui.txt
+python -m pip install -r requirements-gui.txt
 
 echo.
 echo Installation terminee. Utilisez lancer.bat pour ouvrir l'application.

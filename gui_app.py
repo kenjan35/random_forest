@@ -4,40 +4,7 @@ Interface desktop pour le projet de détection de vol de carburant.
 Lancement (depuis la racine du projet, là où se trouvent main.py et src/) :
     python gui_app.py
 
-Dépendances (en plus de celles déjà utilisées par le projet) :
-    pip install PySide6 matplotlib
-"""
-
-# First version of the GUI, not used anymore. The current GUI is in gui/main_window.py and launched from main.py.
-# import sys
-
-# from PySide6.QtWidgets import QApplication
-
-# from gui.main_window import MainWindow
-# from gui.style import STYLESHEET
-
-
-# def main():
-#     app = QApplication(sys.argv)
-#     app.setStyleSheet(STYLESHEET)
-
-#     window = MainWindow()
-#     window.show()
-
-#     sys.exit(app.exec())
-
-
-# if __name__ == "__main__":
-#     main()
-
-"""
-Interface desktop pour le projet de détection de vol de carburant.
-
-Lancement (depuis la racine du projet, là où se trouvent main.py et src/) :
-    python gui_app.py
-
-Dépendances (en plus de celles déjà utilisées par le projet) :
-    pip install PySide6 matplotlib
+Dépendances : voir requirements-gui.txt (installées par installer.bat)
 """
 
 import sys
@@ -54,6 +21,10 @@ ICON_PATH = os.path.join(BASE_DIR, "assets", "icon.ico")
 
 
 def main():
+    # Tous les chemins relatifs (assets/, model/, data/) partent de la racine du
+    # projet, même si l'application est lancée depuis un autre dossier.
+    os.chdir(BASE_DIR)
+
     # Sous Windows, lancé via pythonw.exe (pas un .exe compilé), la barre
     # des tâches affiche souvent l'icône de Python au lieu de la nôtre tant
     # que le processus n'a pas son propre identifiant d'application. Sans

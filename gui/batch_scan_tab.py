@@ -1,19 +1,21 @@
-import csv
 import os
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFileDialog,
     QTableWidget, QTableWidgetItem, QProgressBar, QSplitter, QAbstractItemView,
-    QListWidget, QListWidgetItem
+    QListWidget, QListWidgetItem, QMessageBox
 )
 
 from gui.chart import FuelChart
 from gui.workers import BatchScanWorker
-from gui.analysis import analyze_file, AnalysisError
-from gui.cursor_utils import apply_pointer_cursor, set_button_enabled
+from gui.export import tagged_events, event_list_label, write_events_csv
+from gui.cursor_utils import apply_pointer_cursor, set_button_enabled, set_button_busy
 
 COL_FILE, COL_STATUS, COL_EVENTS, COL_FIRST_ALERT = range(4)
+
+# alias conservé pour compatibilité
+build_tagged_events = tagged_events
 
 
 class NumericItem(QTableWidgetItem):
@@ -83,7 +85,7 @@ class BatchScanTab(QWidget):
         left = QWidget()
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(0, 0, 0, 0)
-        title = QLabel("Périodes suspectes")
+        title = QLabel("Période(s) suspecte(s)")
         title.setObjectName("sectionTitle")
         left_layout.addWidget(title)
         self.events_list = QListWidget()
@@ -115,6 +117,7 @@ class BatchScanTab(QWidget):
         set_button_enabled(self.select_all_btn, False)
         self.progress.setVisible(True)
         self.progress.setValue(0)
+        set_button_busy(self.choose_btn, True)
         set_button_enabled(self.choose_btn, False)
 
         self.worker = BatchScanWorker(folder)
@@ -145,6 +148,11 @@ class BatchScanTab(QWidget):
             self.table.setItem(row, COL_EVENTS, NumericItem(result["n_events"]))
             first_ts = result["events"][0]["ts_start"] if result["events"] else ""
             self.table.setItem(row, COL_FIRST_ALERT, QTableWidgetItem(first_ts))
+        elif result.get("has_sensor_glitch"):
+            self.table.setItem(row, COL_STATUS, QTableWidgetItem("Data incomplete"))
+            self.table.setItem(row, COL_EVENTS, NumericItem(result["n_events_ignored"]))
+            first_ts = result["events_ignored"][0]["ts_start"] if result["events_ignored"] else ""
+            self.table.setItem(row, COL_FIRST_ALERT, QTableWidgetItem(first_ts))
         else:
             self.table.setItem(row, COL_STATUS, QTableWidgetItem("✅ Normal"))
             self.table.setItem(row, COL_EVENTS, NumericItem(0))
@@ -152,6 +160,7 @@ class BatchScanTab(QWidget):
 
     def on_finished(self):
         self.progress.setVisible(False)
+        set_button_busy(self.choose_btn, False)
         set_button_enabled(self.choose_btn, True)
         has_rows = self.table.rowCount() > 0
         set_button_enabled(self.export_btn, has_rows)
@@ -174,9 +183,8 @@ class BatchScanTab(QWidget):
             self.chart.clear()
             return
 
-        for ev in result["events"]:
-            item = QListWidgetItem(f'Lignes {ev["row_start"]}-{ev["row_end"]}\n{ev["ts_start"]}  →  {ev["ts_end"]}')
-            self.events_list.addItem(item)
+        for ev, label in tagged_events(result):
+            self.events_list.addItem(QListWidgetItem(event_list_label(ev, label)))
 
         # le résultat stocké lors du scan contient déjà tout ce qu'il faut pour le graphique
         self.chart.plot(result)
@@ -185,13 +193,11 @@ class BatchScanTab(QWidget):
         path, _ = QFileDialog.getSaveFileName(self, "Exporter les résultats", "resultats_scan.csv", "CSV (*.csv)")
         if not path:
             return
-        with open(path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["fichier", "statut", "nb_periodes_suspectes", "premiere_alerte"])
-            for row in range(self.table.rowCount()):
-                writer.writerow([
-                    self.table.item(row, COL_FILE).text(),
-                    self.table.item(row, COL_STATUS).text(),
-                    self.table.item(row, COL_EVENTS).text(),
-                    self.table.item(row, COL_FIRST_ALERT).text(),
-                ])
+        results = []
+        for row in range(self.table.rowCount()):
+            file_item = self.table.item(row, COL_FILE)
+            results.append(file_item.data(Qt.ItemDataRole.UserRole) if file_item else None)
+        try:
+            write_events_csv(path, results, mapping_key="filename")
+        except OSError as exc:
+            QMessageBox.warning(self, "Export CSV", f"Impossible d'écrire le fichier (est-il ouvert dans Excel ?)\n{exc}")

@@ -1,7 +1,7 @@
 """
-Fait le pont entre le pipeline existant (src/predict.py) et l'interface
-graphique : lance l'analyse d'un fichier, regroupe les fenêtres en alerte
-en périodes lisibles, et prépare les données nécessaires au graphique.
+Fait le pont entre le pipeline (src/predict.py) et l'interface graphique :
+lance l'analyse d'un fichier, regroupe les fenêtres en alerte en périodes
+lisibles, et prépare les données nécessaires au graphique.
 """
 
 import os
@@ -10,11 +10,29 @@ import glob
 import numpy as np
 import pandas as pd
 
-from src.predict import predict, WINDOW_SIZE
+from src.config import FUEL_COL as FUEL_COLUMN
+from src.config import STATUS_COL as STATUS_COLUMN
+from src.config import TIME_COL as TIMESTAMP_COLUMN
+from src.preprocess import clean_fuel
+from src.predict import (
+    WINDOW_SIZE,
+    GLITCH_REFERENCE_FRACTION,
+    confirmed_glitch_mask,
+    parse_status,
+    predict_arrays,
+    _is_active_value as _is_generator_active,  # conservé pour compatibilité
+)
 
-FUEL_COLUMN = "(MFSX) FSA Fuel Volume (Ltr) [MFSX:01:1:4] (S1)"
-STATUS_COLUMN = "FSA Generator Running [MFSX:01:1:12] (S2)"
-TIMESTAMP_COLUMN = "Time stamp"
+TANK_VOLUME_COLUMN = "(MFSX) FSA Total Tank Volume (Ltr) [MFSX:01:1:6] (S1)"
+
+# Fraction minimale d'une période d'alerte devant coïncider avec un
+# décrochage capteur pour que l'alerte soit reclassée en "Data incomplete"
+# plutôt qu'en vol suspecté.
+GLITCH_OVERLAP_THRESHOLD = 0.6
+
+# Une chute à 0 L n'est un décrochage capteur que si le réservoir n'était
+# PAS déjà proche de vide juste avant ou juste après (sinon : vraie panne sèche).
+GLITCH_BASELINE_RATIO = GLITCH_REFERENCE_FRACTION
 
 
 class AnalysisError(Exception):
@@ -22,76 +40,44 @@ class AnalysisError(Exception):
 
 
 def group_consecutive(indices):
-    """Regroupe une liste d'indices triés en intervalles consécutifs."""
+    """Regroupe des indices triés en intervalles consécutifs [(début, fin), ...]."""
+    indices = np.asarray(indices, dtype=np.int64)
     if len(indices) == 0:
         return []
-    groups = []
-    start = prev = indices[0]
-    for idx in indices[1:]:
-        if idx == prev + 1:
-            prev = idx
-        else:
-            groups.append((start, prev))
-            start = prev = idx
-    groups.append((start, prev))
-    return groups
+    breaks = np.flatnonzero(np.diff(indices) != 1)
+    starts = np.concatenate(([indices[0]], indices[breaks + 1]))
+    ends = np.concatenate((indices[breaks], [indices[-1]]))
+    return list(zip(starts.tolist(), ends.tolist()))
 
 
 def find_csv_files(folder):
     return sorted(glob.glob(os.path.join(folder, "**", "*.csv"), recursive=True))
 
 
-# Fraction minimale d'une fenêtre d'alerte devant coïncider avec un
-# décrochage capteur pour que l'alerte soit reclassée comme anomalie
-# plutôt que comme vol suspecté.
-GLITCH_OVERLAP_THRESHOLD = 0.6
-
-# Une chute à 0 L n'est considérée comme un décrochage capteur que si le
-# réservoir n'était PAS déjà proche de vide juste avant ou juste après
-# (sinon il s'agit d'une vraie fin de réservoir, cf. panne sèche).
-GLITCH_BASELINE_RATIO = 0.3
-
-
-def detect_sensor_glitches(fuel, baseline_ratio=GLITCH_BASELINE_RATIO):
+def detect_sensor_glitches(fuel):
     """
-    Détecte les décrochages capteur : le niveau de carburant tombe
-    brutalement à 0 L puis remonte à un niveau proche de celui d'avant la
-    coupure. C'est physiquement impossible pour une vraie fuite ou un vrai
-    vol (le carburant ne "revient" pas tout seul dans le réservoir) : c'est
-    la signature typique d'une coupure de communication ou d'une
-    réinitialisation du capteur à 0.
-
-    Ne touche pas à la logique de prédiction : c'est un filtre appliqué en
-    plus, sur les données brutes, pour qualifier les alertes a posteriori.
-
-    Retourne un tableau booléen (même taille que `fuel`), True pour les
-    lignes appartenant à un épisode identifié comme décrochage capteur.
+    Décrochages capteur : le niveau tombe brutalement à 0 L alors que le
+    niveau juste avant ou juste après est un niveau réel. Le carburant ne
+    "revient" pas tout seul : c'est une coupure de communication ou une
+    réinitialisation du capteur. Filtre appliqué a posteriori pour qualifier
+    les alertes ; un épisode en tout début de fichier est aussi pris en compte.
     """
-    glitch = np.zeros(len(fuel), dtype=bool)
-    if len(fuel) == 0:
-        return glitch
+    return confirmed_glitch_mask(fuel, include_leading=True)
 
-    capacity_estimate = float(np.quantile(fuel, 0.95)) or 1.0
-    threshold = baseline_ratio * capacity_estimate
 
-    zero_indices = np.flatnonzero(fuel == 0).tolist()
-    for start, end in group_consecutive(zero_indices):
-        before = fuel[start - 1] if start > 0 else None
-        after = fuel[end + 1] if end + 1 < len(fuel) else None
-        was_full_before = before is not None and before >= threshold
-        recovers_after = after is not None and after >= threshold
-        if was_full_before or recovers_after:
-            glitch[start:end + 1] = True
-
-    return glitch
+def _read_tank_capacity(df):
+    if TANK_VOLUME_COLUMN not in df.columns:
+        return None
+    values = pd.to_numeric(df[TANK_VOLUME_COLUMN], errors="coerce").dropna()
+    return float(values.median()) if not values.empty else None
 
 
 def analyze_file(csv_path):
     """
-    Lance predict() sur un fichier et retourne toutes les infos nécessaires
-    à l'affichage (résumé + détail des périodes + données pour le graphique).
+    Lance la prédiction sur un fichier et retourne toutes les infos
+    nécessaires à l'affichage (résumé + périodes + données du graphique).
     Lève AnalysisError avec un message clair en cas de problème (modèle
-    manquant, colonnes absentes, fichier vide, etc.).
+    manquant, colonnes absentes, fichier illisible, etc.).
     """
     if not os.path.exists(csv_path):
         raise AnalysisError(f"Fichier introuvable : {csv_path}")
@@ -107,8 +93,13 @@ def analyze_file(csv_path):
             "Colonne(s) attendue(s) absente(s) de ce fichier :\n" + "\n".join(missing)
         )
 
+    # le CSV n'est lu qu'une fois : les mêmes données servent au modèle et au graphique
+    fuel = clean_fuel(df[FUEL_COLUMN])
+    status = df[STATUS_COLUMN].to_numpy()
+    timestamps = df[TIMESTAMP_COLUMN].to_numpy()
+
     try:
-        prediction = predict(csv_path)
+        prediction = predict_arrays(fuel, status)
     except FileNotFoundError as exc:
         raise AnalysisError(
             "Modèle introuvable (model/random_forest.pkl).\n"
@@ -117,53 +108,55 @@ def analyze_file(csv_path):
     except Exception as exc:
         raise AnalysisError(f"Erreur pendant l'analyse : {exc}") from exc
 
-    fuel = df[FUEL_COLUMN].to_numpy(dtype=float)
-    status = df[STATUS_COLUMN].to_numpy()
-    timestamps = df[TIMESTAMP_COLUMN].to_numpy()
-    active = np.array(["Active" in str(s) for s in status])
-
-    alert_window_indices = [i for i, v in enumerate(prediction) if v == 1]
-    window_events = group_consecutive(alert_window_indices)
-
+    n_rows = len(fuel)
     glitch_mask = detect_sensor_glitches(fuel)
 
-    events = []
-    events_ignored = []
-    for (window_start, window_end) in window_events:
-        row_start = window_start
-        row_end = min(window_end + WINDOW_SIZE - 1, len(timestamps) - 1)
-        span = glitch_mask[row_start:row_end + 1]
-        glitch_ratio = float(span.mean()) if len(span) else 0.0
-
-        event = {
-            "row_start": int(row_start),
-            "row_end": int(row_end),
+    def make_event(row_start, row_end, glitch_ratio=0.0):
+        row_start, row_end = int(row_start), int(row_end)
+        return {
+            "row_start": row_start,
+            "row_end": row_end,
             "ts_start": str(timestamps[row_start]),
             "ts_end": str(timestamps[row_end]),
-            "glitch_ratio": round(glitch_ratio, 2),
+            "glitch_ratio": round(float(glitch_ratio), 2),
+            "fuel_drop": round(float(fuel[row_start] - fuel[row_end]), 1),
         }
 
-        # L'alerte coïncide surtout avec un décrochage capteur identifié :
-        # on l'écarte du décompte de vols mais on la garde à part, visible,
-        # plutôt que de la faire disparaître silencieusement.
-        if glitch_ratio >= GLITCH_OVERLAP_THRESHOLD:
-            events_ignored.append(event)
-        else:
-            events.append(event)
+    events, events_ignored = [], []
+    for window_start, window_end in group_consecutive(np.flatnonzero(prediction == 1)):
+        row_start = window_start
+        row_end = min(window_end + WINDOW_SIZE - 1, n_rows - 1)
+        glitch_ratio = float(glitch_mask[row_start:row_end + 1].mean())
+        event = make_event(row_start, row_end, glitch_ratio)
+        # L'alerte coïncide surtout avec un décrochage capteur : on l'écarte du
+        # décompte des vols mais on la garde visible, à part.
+        (events_ignored if glitch_ratio >= GLITCH_OVERLAP_THRESHOLD else events).append(event)
 
+    # Ajoute les pannes capteur qui n'ont pas déjà été signalées via une alerte
+    # (c'est bien un cas "Data incomplete" et non un "Aucun vol détecté").
+    covered = [(ev["row_start"], ev["row_end"]) for ev in events_ignored]
+    for start, end in group_consecutive(np.flatnonzero(glitch_mask)):
+        if not any(s <= start and end <= e for s, e in covered):
+            events_ignored.append(make_event(start, end, 1.0))
+    events_ignored.sort(key=lambda ev: ev["row_start"])
+
+    has_sensor_glitch = len(events_ignored) > 0
     return {
         "csv_path": csv_path,
         "filename": os.path.basename(csv_path),
         "fuel": fuel,
         "status": status,
-        "active": active,
+        "active": parse_status(status, n_rows),
+        "tank_capacity": _read_tank_capacity(df),
         "timestamps": timestamps,
-        "n_rows": len(fuel),
+        "n_rows": n_rows,
         "n_windows": int(len(prediction)),
-        "n_alert_windows": int(prediction.sum()) if len(prediction) else 0,
+        "n_alert_windows": int(prediction.sum()),
         "events": events,
         "n_events": len(events),
         "events_ignored": events_ignored,
         "n_events_ignored": len(events_ignored),
         "has_theft": len(events) > 0,
+        "has_sensor_glitch": has_sensor_glitch,
+        "has_issue": len(events) > 0 or has_sensor_glitch,
     }

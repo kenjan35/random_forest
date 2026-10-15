@@ -4,30 +4,27 @@ Teste le modèle entraîné sur un seul fichier CSV.
 Usage :
     python test_predict.py chemin/vers/fichier.csv
 
-Prérequis : avoir déjà lancé `python main.py` au moins une fois
-(model/random_forest.pkl et model/threshold.pkl doivent exister).
+Prérequis : model/random_forest.pkl (et model/threshold.pkl) doivent exister.
 """
 
 import sys
-import pandas as pd
 
+import numpy as np
+
+from src.config import TIME_COL
 from src.predict import predict, WINDOW_SIZE
+from src.preprocess import load_site
 
 
 def group_consecutive(indices):
-    """Regroupe une liste d'indices triés en intervalles consécutifs."""
+    """Regroupe des indices triés en intervalles consécutifs [(début, fin), ...]."""
+    indices = np.asarray(indices)
     if len(indices) == 0:
         return []
-    groups = []
-    start = prev = indices[0]
-    for idx in indices[1:]:
-        if idx == prev + 1:
-            prev = idx
-        else:
-            groups.append((start, prev))
-            start = prev = idx
-    groups.append((start, prev))
-    return groups
+    breaks = np.flatnonzero(np.diff(indices) != 1)
+    starts = np.concatenate(([indices[0]], indices[breaks + 1]))
+    ends = np.concatenate((indices[breaks], [indices[-1]]))
+    return list(zip(starts.tolist(), ends.tolist()))
 
 
 def main():
@@ -36,30 +33,28 @@ def main():
         sys.exit(1)
 
     csv_path = sys.argv[1]
-    prediction = predict(csv_path)  # 0/1 par fenêtre, après la règle de persistance
+    prediction = predict(csv_path)  # 0/1 par fenêtre, après les règles
 
-    n_alert_windows = int(prediction.sum())
     print(f"Fichier : {csv_path}")
     print(f"Fenêtres totales analysées : {len(prediction)}")
-    print(f"Fenêtres en alerte : {n_alert_windows}")
+    print(f"Fenêtres en alerte : {int(prediction.sum())}")
 
-    alert_indices = [i for i, v in enumerate(prediction) if v == 1]
-    events = group_consecutive(alert_indices)
-
+    events = group_consecutive(np.flatnonzero(prediction == 1))
     if not events:
         print("\n✅ Aucun vol détecté sur ce fichier.")
         return
 
-    # on relit les timestamps pour donner un horodatage lisible aux alertes
-    df = pd.read_csv(csv_path)
-    timestamps = df["Time stamp"].to_numpy()
+    fuel, _, timestamps = load_site(csv_path)
+    last_row = len(fuel) - 1
+    if timestamps is None:
+        print(f"(colonne {TIME_COL!r} absente : seuls les numéros de ligne sont affichés)")
 
     print(f"\n⚠️  {len(events)} période(s) suspecte(s) détectée(s) :\n")
-    for (window_start, window_end) in events:
+    for window_start, window_end in events:
         row_start = window_start
-        row_end = window_end + WINDOW_SIZE - 1
-        row_end = min(row_end, len(timestamps) - 1)
-        print(f"  Lignes {row_start}-{row_end}  |  {timestamps[row_start]}  ->  {timestamps[row_end]}")
+        row_end = min(window_end + WINDOW_SIZE - 1, last_row)
+        when = f"  |  {timestamps[row_start]}  ->  {timestamps[row_end]}" if timestamps is not None else ""
+        print(f"  Lignes {row_start}-{row_end}{when}")
 
 
 if __name__ == "__main__":
