@@ -11,6 +11,8 @@ L'échelle des litres se réajuste automatiquement aux données visibles.
 """
 
 import numpy as np
+
+from gui.fuel_math import drop_extremes
 from datetime import datetime
 
 import matplotlib
@@ -89,6 +91,39 @@ def _rescaled_ylim(fuel, x_min, x_max, padding_ratio=Y_PADDING_RATIO):
         y_max += 1.0
     pad = (y_max - y_min) * padding_ratio
     return y_min - pad, y_max + pad
+
+
+def annotate_drop(ax, fuel, row_start, row_end, text_color, guide_color, label_bg):
+    """
+    Ajoute sur le graphique deux repères : le niveau du haut (avant la descente)
+    et celui du bas (après), avec leur valeur en litres. Agrandit l'axe vertical
+    pour que les étiquettes ne soient pas coupées. Retourne les deux points.
+    """
+    extremes = drop_extremes(fuel, row_start, row_end)
+    if extremes is None:
+        return None
+    (x_high, y_high), (x_low, y_low) = extremes
+
+    y_min, y_max = ax.get_ylim()
+    span = max(y_max - y_min, 1.0)
+    ax.set_ylim(min(y_min, y_low) - span * 0.22, max(y_max, y_high) + span * 0.22)
+    x_min, x_max = ax.get_xlim()
+
+    for x, y, label, below in ((x_high, y_high, "Haut", False), (x_low, y_low, "Bas", True)):
+        ax.axhline(y, color=guide_color, linewidth=0.9, linestyle="--", zorder=1)
+        ax.plot([x], [y], marker="o", markersize=7, color=FUEL_COLOR,
+                markeredgecolor=label_bg, markeredgewidth=1.5, zorder=4)
+        position = (x - x_min) / max(x_max - x_min, 1e-9)
+        ha = "left" if position < 0.15 else "right" if position > 0.85 else "center"
+        ax.annotate(
+            f"{label} : {y:.1f} L", (x, y),
+            xytext=(0, -12 if below else 12), textcoords="offset points",
+            ha=ha, va="top" if below else "bottom", fontsize=10, fontweight="bold",
+            color=text_color, zorder=5,
+            bbox={"boxstyle": "round,pad=0.35", "facecolor": label_bg,
+                  "edgecolor": guide_color, "linewidth": 0.8},
+        )
+    return extremes
 
 
 class FuelChart(QWidget):

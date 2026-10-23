@@ -11,10 +11,11 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QVBoxLayout, QWidget, QFileDialog, QTabWidget, QSplitter,
 )
 
-from gui.chart import FuelChart, THEMES
+from gui.chart import FuelChart, THEMES, annotate_drop
 from gui.export import write_events_csv
 from gui.cursor_utils import apply_pointer_cursor, set_button_enabled, set_button_busy
 from gui.pdf_reports import create_reports
+from gui.docx_reports import create_docx_reports
 from gui.site_history import record_extraction
 from gui.workers import SeleniumExtractionWorker
 
@@ -152,8 +153,15 @@ class SeleniumTab(QWidget):
         self.pdf_btn.setEnabled(False)
         self.pdf_btn.clicked.connect(self.generate_pdf_reports)
         apply_pointer_cursor(self.pdf_btn)
+        self.docx_btn = QPushButton("Générer les rapports Word")
+        self.docx_btn.setObjectName("secondary")
+        self.docx_btn.setToolTip("Rapports .docx modifiables (même contenu que les PDF)")
+        self.docx_btn.setEnabled(False)
+        self.docx_btn.clicked.connect(self.generate_docx_reports)
+        apply_pointer_cursor(self.docx_btn)
         results_actions.addWidget(self.export_btn)
         results_actions.addWidget(self.pdf_btn)
+        results_actions.addWidget(self.docx_btn)
         results_actions.addStretch()
         results_layout.addLayout(results_actions)
         results_layout.addWidget(results_splitter, stretch=1)
@@ -189,6 +197,7 @@ class SeleniumTab(QWidget):
         set_button_enabled(self.extract_btn, False)
         set_button_enabled(self.export_btn, False)
         set_button_enabled(self.pdf_btn, False)
+        set_button_enabled(self.docx_btn, False)
         self.status_label.setText(f"0 / {len(sites)} sites traités")
         self.worker = SeleniumExtractionWorker(
             self.url_edit.text().strip(), self.user_edit.text(), self.password_edit.text(),
@@ -218,6 +227,7 @@ class SeleniumTab(QWidget):
             self.status_label.setText(f"Historique non enregistré : {exc}")
         set_button_enabled(self.export_btn, True)
         set_button_enabled(self.pdf_btn, any(item.get("has_theft") for item in self.results))
+        set_button_enabled(self.docx_btn, any(item.get("has_theft") for item in self.results))
         self._update_site_progress()
         self.pages.setCurrentIndex(1)
 
@@ -370,6 +380,7 @@ class SeleniumTab(QWidget):
         set_button_enabled(self.extract_btn, True)
         set_button_enabled(self.export_btn, bool(results))
         set_button_enabled(self.pdf_btn, any(result.get("has_theft") for result in results))
+        set_button_enabled(self.docx_btn, any(result.get("has_theft") for result in results))
         self._update_site_progress()
         self.pages.setCurrentIndex(1)
         if results:
@@ -394,13 +405,20 @@ class SeleniumTab(QWidget):
         if self.results:
             set_button_enabled(self.export_btn, True)
             set_button_enabled(self.pdf_btn, any(result.get("has_theft") for result in self.results))
+            set_button_enabled(self.docx_btn, any(result.get("has_theft") for result in self.results))
             self.pages.setCurrentIndex(1)
         self._update_site_progress()
         QMessageBox.critical(self, "Extraction Power-Noc", message)
 
     def generate_pdf_reports(self):
+        self._generate_reports(create_reports, "PDF")
+
+    def generate_docx_reports(self):
+        self._generate_reports(create_docx_reports, "Word")
+
+    def _generate_reports(self, builder, kind):
         output_dir = QFileDialog.getExistingDirectory(
-            self, "Choisir le dossier des rapports PDF"
+            self, f"Choisir le dossier des rapports {kind}"
         )
         if not output_dir:
             return
@@ -408,25 +426,29 @@ class SeleniumTab(QWidget):
         previous_theme = self.chart._theme
         self.chart._theme = THEMES["light"]  # rapports lisibles à l'impression, quel que soit le thème
         try:
-            paths = create_reports(
+            paths = builder(
                 self.results,
                 output_dir,
                 self.start_date.date().toString("yyyy-MM-dd"),
                 self.end_date.date().toString("yyyy-MM-dd"),
                 self._save_event_chart,
             )
+        except PermissionError as exc:
+            QMessageBox.critical(self, f"Rapports {kind}",
+                                 f"Impossible d'écrire un rapport (est-il ouvert dans Word ou un lecteur PDF ?)\n{exc}")
+            return
         except Exception as exc:
-            QMessageBox.critical(self, "Rapports PDF", f"Impossible de générer les rapports : {exc}")
+            QMessageBox.critical(self, f"Rapports {kind}", f"Impossible de générer les rapports : {exc}")
             return
         finally:
             # le graphique a servi de "brouillon" : on réaffiche la sélection courante
             self.chart._theme = previous_theme
             self.on_row_selected()
-        self.status_label.setText(f"{len(paths)} rapport(s) PDF généré(s)")
+        self.status_label.setText(f"{len(paths)} rapport(s) {kind} généré(s)")
         if paths:
             QMessageBox.information(
                 self,
-                "Rapports PDF",
+                f"Rapports {kind}",
                 f"{len(paths)} rapport(s) créé(s) dans :\n{output_dir}",
             )
 
@@ -436,6 +458,9 @@ class SeleniumTab(QWidget):
         right = min(len(result["fuel"]) - 1, event["row_end"] + 10)
         self.chart.ax_fuel.set_xlim(left, max(left + 1, right))
         self.chart._rescale_y()
+        theme = self.chart._theme
+        annotate_drop(self.chart.ax_fuel, result["fuel"], event["row_start"], event["row_end"],
+                      text_color=theme["text"], guide_color=theme["grid"], label_bg=theme["figure_bg"])
         self.chart.fig.savefig(output_path, dpi=160, bbox_inches="tight")
 
     def export_csv(self):

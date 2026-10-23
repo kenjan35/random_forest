@@ -10,6 +10,7 @@ import glob
 import numpy as np
 import pandas as pd
 
+from gui.fuel_math import event_loss
 from src.config import FUEL_COL as FUEL_COLUMN
 from src.config import STATUS_COL as STATUS_COLUMN
 from src.config import TIME_COL as TIMESTAMP_COLUMN
@@ -20,6 +21,7 @@ from src.predict import (
     confirmed_glitch_mask,
     parse_status,
     predict_arrays,
+    zero_bridged_losses_for,
     _is_active_value as _is_generator_active,  # conservé pour compatibilité
 )
 
@@ -110,6 +112,11 @@ def analyze_file(csv_path):
 
     n_rows = len(fuel)
     glitch_mask = detect_sensor_glitches(fuel)
+    # vols masqués par une chute à 0 : ne pas les reclasser en « Data incomplete »
+    bridged = zero_bridged_losses_for(fuel, status)
+
+    def overlaps_bridged(row_start, row_end):
+        return next((b for b in bridged if b["start"] <= row_end and b["end"] >= row_start), None)
 
     def make_event(row_start, row_end, glitch_ratio=0.0):
         row_start, row_end = int(row_start), int(row_end)
@@ -119,7 +126,9 @@ def analyze_file(csv_path):
             "ts_start": str(timestamps[row_start]),
             "ts_end": str(timestamps[row_end]),
             "glitch_ratio": round(float(glitch_ratio), 2),
-            "fuel_drop": round(float(fuel[row_start] - fuel[row_end]), 1),
+            # niveau haut − niveau bas de la période (et non premier − dernier relevé,
+            # qui devenait négatif quand un ravitaillement suivait la chute)
+            "fuel_drop": event_loss(fuel, row_start, row_end),
         }
 
     events, events_ignored = [], []
@@ -128,6 +137,12 @@ def analyze_file(csv_path):
         row_end = min(window_end + WINDOW_SIZE - 1, n_rows - 1)
         glitch_ratio = float(glitch_mask[row_start:row_end + 1].mean())
         event = make_event(row_start, row_end, glitch_ratio)
+        bridge = overlaps_bridged(row_start, row_end)
+        if bridge is not None:
+            event["fuel_drop"] = bridge["loss"]   # niveau avant la coupure − niveau après
+            event["zero_bridged"] = True
+            events.append(event)
+            continue
         # L'alerte coïncide surtout avec un décrochage capteur : on l'écarte du
         # décompte des vols mais on la garde visible, à part.
         (events_ignored if glitch_ratio >= GLITCH_OVERLAP_THRESHOLD else events).append(event)
@@ -136,6 +151,8 @@ def analyze_file(csv_path):
     # (c'est bien un cas "Data incomplete" et non un "Aucun vol détecté").
     covered = [(ev["row_start"], ev["row_end"]) for ev in events_ignored]
     for start, end in group_consecutive(np.flatnonzero(glitch_mask)):
+        if overlaps_bridged(start, end) is not None:
+            continue  # cette chute à 0 fait partie d'un vol déjà signalé
         if not any(s <= start and end <= e for s, e in covered):
             events_ignored.append(make_event(start, end, 1.0))
     events_ignored.sort(key=lambda ev: ev["row_start"])

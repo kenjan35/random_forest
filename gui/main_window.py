@@ -11,7 +11,7 @@ from gui.single_file_tab import SingleFileTab
 from gui.batch_scan_tab import BatchScanTab
 from gui.selenium_tab import SeleniumTab
 from gui.top_sites_tab import TopSitesTab
-from gui.storage_tab import StorageExtractionTab
+from gui.rms_console_tab import RmsConsoleTab
 from gui.chart import FuelChart
 from gui.style import DARK_STYLESHEET, LIGHT_STYLESHEET
 from gui.cursor_utils import apply_pointer_cursor
@@ -68,7 +68,7 @@ class MainWindow(QMainWindow):
         views.addWidget(dashboard_view)
         views.addWidget(extraction_view)
         views.addWidget(direct_analysis)
-        views.addWidget(StorageExtractionTab())
+        views.addWidget(RmsConsoleTab())
 
         for label, icon_name, selected_icon_name, index in (
             ("Dashboard", "dashboard.svg", "dashboard-white.svg", 0),
@@ -183,6 +183,8 @@ class MainWindow(QMainWindow):
             chart.set_theme(self.dark_mode)
         for top_sites in self.findChildren(TopSitesTab):
             top_sites.set_theme(self.dark_mode)
+        for console in self.findChildren(RmsConsoleTab):
+            console.set_theme(self.dark_mode)
 
         self._play_theme_transition(snapshot)
 

@@ -34,6 +34,12 @@ SCALE_PERCENTILE_HIGH = 97    # beaucoup d'échantillons : tolère les sites nat
 MIN_SAMPLES_FOR_HIGH_PERCENTILE = 100
 GLITCH_REFERENCE_FRACTION = 0.3  # une coupure est confirmée si le niveau voisin dépasse 30% du P95
 
+# Vol masqué par une chute à 0 : niveau avant la coupure > niveau stable après la coupure
+ZERO_BRIDGE_BEFORE_ROWS = 6        # relevés avant la coupure pour estimer le niveau de départ
+ZERO_BRIDGE_AFTER_ROWS = 12        # ~1 h de relevés stables exigés après la coupure
+ZERO_BRIDGE_STABLE_TOL = 5.0       # litres : écart max toléré sur ces relevés (ou 20 % de la perte)
+ZERO_BRIDGE_MAX_GAP_UNRELIABLE = 36  # sans statut fiable : coupures de 3 h maximum (conso inconnue)
+
 # Constantes conservées pour compatibilité (plus utilisées par la logique actuelle)
 RULE_DROP_MULTIPLIER = 5
 RULE_FILE_OSCILLATION_DEVIATION = 15.0
@@ -374,6 +380,54 @@ def _rule_based_flags(fuel, dropout_mask):
     return flags
 
 
+def zero_bridged_losses(fuel, active, status_reliable, active_scale):
+    """
+    Vols cachés derrière une chute à 0 : le niveau passe de A à 0 puis revient
+    à un niveau B nettement plus bas, et y reste. Une vraie coupure capteur
+    revient au niveau d'avant ; un ravitaillement revient plus haut — ces deux
+    cas ne sont pas concernés.
+    Retourne [{"start", "end", "before", "after", "loss"}, ...] (lignes à 0 incluses).
+    """
+    fuel = np.asarray(fuel, dtype=float)
+    n = len(fuel)
+    losses = []
+    for start, end in _find_dropout_segments(fuel):
+        before_vals = fuel[max(0, start - ZERO_BRIDGE_BEFORE_ROWS):start]
+        after_vals = fuel[end + 1:end + 1 + ZERO_BRIDGE_AFTER_ROWS]
+        if len(before_vals) < 3 or len(after_vals) < ZERO_BRIDGE_AFTER_ROWS:
+            continue
+        if np.any(before_vals <= 0) or np.any(after_vals <= 0):
+            continue  # pas de niveau réel de part et d'autre
+        gap = end - start + 1
+        if not status_reliable and gap > ZERO_BRIDGE_MAX_GAP_UNRELIABLE:
+            continue
+        before = float(np.median(before_vals))
+        after = float(np.median(after_vals))
+        loss = before - after
+        # consommation normale possible si le groupe tournait pendant la coupure
+        n_active = int(active[start:end + 1].sum()) if status_reliable else 0
+        expected = GATE_LOSS_MULTIPLIER * n_active * active_scale
+        if loss <= max(RULE_MIN_LOSS, expected):
+            continue
+        if np.ptp(after_vals) > max(ZERO_BRIDGE_STABLE_TOL, 0.2 * loss):
+            continue  # le niveau après la coupure n'est pas stabilisé (capteur qui se recale)
+        losses.append({"start": int(start), "end": int(end), "before": round(before, 1),
+                       "after": round(after, 1), "loss": round(loss, 1)})
+    return losses
+
+
+def zero_bridged_losses_for(fuel, status=None):
+    """Version autonome (pour l'interface) : calcule statut et échelles puis détecte."""
+    fuel = np.asarray(fuel, dtype=float)
+    if len(fuel) == 0:
+        return []
+    active = parse_status(status, len(fuel))
+    reliable = _status_is_reliable(active)
+    dropout_mask = _segments_mask(_find_dropout_segments(fuel), len(fuel))
+    _noise, active_scale = _site_scales(fuel, active, reliable, dropout_mask)
+    return zero_bridged_losses(fuel, active, reliable, active_scale)
+
+
 def _magnitude_gate(X, active, noise_scale, active_scale, status_reliable):
     """Ne garde une alerte ML que si la perte de la fenêtre dépasse nettement la perte attendue."""
     n = X.shape[0]
@@ -442,4 +496,12 @@ def predict_arrays(fuel, status=None):
 
     if len(confirmed_glitches) >= 2:
         final_pred[:] = 0
+
+    # vol masqué par une chute à 0 (niveau après la coupure nettement plus bas) :
+    # ajouté en dernier pour ne pas être effacé par les suppressions « coupure capteur »
+    bridged_rows = np.zeros(n, dtype=bool)
+    for loss in zero_bridged_losses(fuel, active, status_reliable, active_scale):
+        bridged_rows[max(0, loss["start"] - 1):min(n, loss["end"] + 2)] = True
+    if bridged_rows.any():
+        final_pred[_rows_to_windows(bridged_rows, WINDOW_SIZE)] = 1
     return final_pred

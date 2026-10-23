@@ -1,5 +1,5 @@
-import os
 import gzip
+import os
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Qt, Signal
@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QSplitter,
 )
 
+from gui.rms_client import describe_http_error as _describe
 from gui.cursor_utils import apply_pointer_cursor, set_button_busy, set_button_enabled
 
 S3_ENDPOINT = "api-rms.appesca.com"
@@ -76,7 +77,10 @@ class StorageWorker(QThread):
             detail = messages.get(exc.code, str(exc))
             self.failed.emit(f"Erreur API S3 ({exc.code}) : {detail}")
         except Exception as exc:
-            self.failed.emit(f"Erreur API S3 : {type(exc).__name__}: {exc}")
+            message = _describe(exc, S3_ENDPOINT)
+            if message is None:
+                message = f"Erreur API S3 : {type(exc).__name__}: {exc}"
+            self.failed.emit(message)
 
     def _list_objects(self, client):
         objects = client.list_objects(self.bucket, prefix=self.prefix, recursive=True)

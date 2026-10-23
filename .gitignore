@@ -1,4 +1,5 @@
 data/
 model/
 src/__pycache__/
+gui/__pycache__/
 venv/
