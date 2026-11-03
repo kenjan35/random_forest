@@ -105,7 +105,7 @@ def analyze_file(csv_path):
     except FileNotFoundError as exc:
         raise AnalysisError(
             "Modèle introuvable (model/random_forest.pkl).\n"
-            "Lancez d'abord `python main.py` pour entraîner et sauvegarder le modèle."
+            "Lancez d'abord `python utils/main.py` pour entraîner et sauvegarder le modèle."
         ) from exc
     except Exception as exc:
         raise AnalysisError(f"Erreur pendant l'analyse : {exc}") from exc

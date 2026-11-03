@@ -379,11 +379,11 @@ class DownloadWorker(QThread):
     failed = Signal(str)
 
     def __init__(self, client, bucket, output_dir, endpoint, base_prefix, keys=None, prefixes=None,
-                 workers=32, zip_path=None, parent=None):
+                 workers=32, zip_path=None, group_by_mapping=False, parent=None):
         super().__init__(parent)
         self.client, self.bucket, self.output_dir, self.endpoint = client, bucket, output_dir, endpoint
         self.options = dict(base_prefix=base_prefix, keys=keys, prefixes=prefixes, workers=workers,
-                            zip_path=zip_path, skip_existing=True)
+                            zip_path=zip_path, skip_existing=True, group_by_mapping=group_by_mapping)
         self._stop = False
 
     def stop(self):
@@ -663,6 +663,14 @@ class RmsConsoleTab(QWidget):
         apply_pointer_cursor(self.folder_btn)
         set_button_enabled(self.folder_btn, False)
         footer.addWidget(self.folder_btn)
+        self.sort_btn = QPushButton("Extraire et trier par mapping")
+        self.sort_btn.setObjectName("rmsPrimary")
+        self.sort_btn.setToolTip("Décompresse les fichiers .gz sélectionnés (ou tout le contenu des dossiers "
+                                 "sélectionnés) en JSON et les range dans un dossier par valeur de « mapping ».")
+        self.sort_btn.clicked.connect(self._extract_sorted)
+        apply_pointer_cursor(self.sort_btn)
+        set_button_enabled(self.sort_btn, False)
+        footer.addWidget(self.sort_btn)
         layout.addLayout(footer)
 
         options = QHBoxLayout()
@@ -1108,13 +1116,17 @@ class RmsConsoleTab(QWidget):
 
     # -------------------------------------------------------- téléchargement
 
-    def _selected_files(self):
-        keys = []
+    def _selected_entries(self):
+        """(clés des fichiers sélectionnés, préfixes des dossiers sélectionnés)."""
+        keys, prefixes = [], []
         for index in self.table.selectionModel().selectedRows():
             entry = self._entry_at(index)
-            if entry is not None and not entry["is_dir"]:
-                keys.append(entry["key"])
-        return keys
+            if entry is not None:
+                (prefixes if entry["is_dir"] else keys).append(entry["key"])
+        return keys, prefixes
+
+    def _selected_files(self):
+        return self._selected_entries()[0]
 
     def _update_download_button(self):
         busy = getattr(self, "_download_worker", None) is not None
@@ -1123,11 +1135,38 @@ class RmsConsoleTab(QWidget):
         set_button_enabled(self.download_btn, bool(keys) and not busy)
         if hasattr(self, "folder_btn"):
             set_button_enabled(self.folder_btn, self._client is not None and bool(self._prefix) and not busy)
+        if hasattr(self, "sort_btn"):
+            files, folders = self._selected_entries() if self._client is not None else ([], [])
+            count = len(files) + len(folders)
+            self.sort_btn.setText(f"Extraire et trier par mapping ({count})" if count
+                                  else "Extraire et trier par mapping")
+            set_button_enabled(self.sort_btn, bool(count) and not busy)
 
     def _download_selection(self):
         keys = self._selected_files()
         if keys and self._client is not None:
             self._start_download(keys=keys, label=f"{len(keys)} fichier(s) sélectionné(s)")
+
+    def _extract_sorted(self):
+        """Sélection (fichiers et/ou dossiers) -> JSON décompressés, un dossier par mapping."""
+        keys, prefixes = self._selected_entries()
+        if self._client is None or not (keys or prefixes):
+            return
+        parts = []
+        if keys:
+            parts.append(f"{len(keys)} fichier(s)")
+        if prefixes:
+            parts.append(f"{len(prefixes)} dossier(s)")
+            shallow = [p for p in prefixes if len([x for x in p.split("/") if x]) < 4]
+            if shallow:
+                answer = QMessageBox.question(
+                    self.window(), "Extraction volumineuse",
+                    "Les dossiers sélectionnés peuvent contenir des centaines de milliers de fichiers.\n"
+                    "L'extraction peut durer longtemps. Continuer ?")
+                if answer != QMessageBox.StandardButton.Yes:
+                    return
+        self._start_download(keys=keys or None, prefixes=prefixes or None,
+                             label=" et ".join(parts) + " triés par mapping", group_by_mapping=True)
 
     def _download_folder(self):
         if self._client is None or not self._prefix:
@@ -1142,22 +1181,25 @@ class RmsConsoleTab(QWidget):
                 return
         self._start_download(prefixes=[self._prefix], label=f"dossier {self._prefix}")
 
-    def _start_download(self, label, keys=None, prefixes=None):
+    def _start_download(self, label, keys=None, prefixes=None, group_by_mapping=False):
         zip_path = None
         if self.zip_check.isChecked():
-            default = (self._prefix.strip("/").replace("/", "_") or self._bucket) + ".zip"
+            default = (self._prefix.strip("/").replace("/", "_") or self._bucket)
+            default += "_par_mapping.zip" if group_by_mapping else ".zip"
             zip_path, _ = QFileDialog.getSaveFileName(self.window(), "Enregistrer l'archive ZIP", default, "ZIP (*.zip)")
             if not zip_path:
                 return
             output_dir = os.path.dirname(zip_path)
         else:
-            output_dir = QFileDialog.getExistingDirectory(self.window(), "Choisir le dossier de téléchargement")
+            title = ("Choisir le dossier où ranger les JSON (un sous-dossier par mapping)" if group_by_mapping
+                     else "Choisir le dossier de téléchargement")
+            output_dir = QFileDialog.getExistingDirectory(self.window(), title)
             if not output_dir:
                 return
         self._download_label = label
         worker = DownloadWorker(self._client, self._bucket, output_dir, self._endpoint_host, self._prefix,
                                 keys=keys, prefixes=prefixes, workers=self.threads_spin.value(),
-                                zip_path=zip_path, parent=self)
+                                zip_path=zip_path, group_by_mapping=group_by_mapping, parent=self)
         worker.progress.connect(self._on_download_progress)
         worker.finished_ok.connect(self._on_download_done)
         worker.failed.connect(self._on_download_failed)
@@ -1179,6 +1221,8 @@ class RmsConsoleTab(QWidget):
         rate = done / max(s.get("duree", 0), 0.1)
         listed = f"{s['listes']:,}" + ("" if s["listage_termine"] else "+")
         parts = [f"{done:,} / {listed} fichiers", f"{rate:.0f} fichiers/s", rms.format_size(s["octets"])]
+        if s.get("sites"):
+            parts.append(f"{s['sites']:,} mapping(s)")
         if s["deja_presents"]:
             parts.append(f"{s['deja_presents']:,} déjà présents")
         if s["erreurs"]:

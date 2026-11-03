@@ -2,12 +2,19 @@
 Teste le modèle entraîné sur un seul fichier CSV.
 
 Usage :
-    python test_predict.py chemin/vers/fichier.csv
+    python utils/test_predict.py chemin/vers/fichier.csv
 
 Prérequis : model/random_forest.pkl (et model/threshold.pkl) doivent exister.
 """
 
+import os
 import sys
+
+# Permet de lancer ce script depuis utils/ (ou n'importe quel dossier) :
+# la racine du projet (qui contient src/) est ajoutée au chemin d'import.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 
 import numpy as np
 
@@ -29,7 +36,7 @@ def group_consecutive(indices):
 
 def main():
     if len(sys.argv) != 2:
-        print("Usage: python test_predict.py chemin/vers/fichier.csv")
+        print("Usage: python utils/test_predict.py chemin/vers/fichier.csv")
         sys.exit(1)
 
     csv_path = sys.argv[1]

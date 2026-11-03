@@ -38,7 +38,7 @@ GLITCH_REFERENCE_FRACTION = 0.3  # une coupure est confirmée si le niveau voisi
 ZERO_BRIDGE_BEFORE_ROWS = 6        # relevés avant la coupure pour estimer le niveau de départ
 ZERO_BRIDGE_AFTER_ROWS = 12        # ~1 h de relevés stables exigés après la coupure
 ZERO_BRIDGE_STABLE_TOL = 5.0       # litres : écart max toléré sur ces relevés (ou 20 % de la perte)
-ZERO_BRIDGE_MAX_GAP_UNRELIABLE = 36  # sans statut fiable : coupures de 3 h maximum (conso inconnue)
+ZERO_BRIDGE_MAX_GAP_UNRELIABLE = 36  # sans statut fiable : coupures de 3 h maximum
 
 # Constantes conservées pour compatibilité (plus utilisées par la logique actuelle)
 RULE_DROP_MULTIPLIER = 5

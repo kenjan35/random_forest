@@ -4,10 +4,17 @@ entraîné (model/random_forest.pkl), sans règles ni persistance — pour voir
 exactement ce que le modèle "pense" de chaque fenêtre.
 
 Usage :
-    python debug_predict.py data/test/TATS086.csv
+    python utils/debug_predict.py data/test/TATS086.csv
 """
 
+import os
 import sys
+
+# Permet de lancer ce script depuis utils/ (ou n'importe quel dossier) :
+# la racine du projet (qui contient src/) est ajoutée au chemin d'import.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 
 import numpy as np
 
@@ -20,7 +27,7 @@ from src.windows import create_windows
 
 def main():
     if len(sys.argv) != 2:
-        print("Usage: python debug_predict.py chemin/vers/fichier.csv")
+        print("Usage: python utils/debug_predict.py chemin/vers/fichier.csv")
         sys.exit(1)
 
     csv_path = sys.argv[1]

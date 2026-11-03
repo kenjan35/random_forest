@@ -11,6 +11,13 @@ de src/predict.py.
 """
 
 import os
+import sys
+
+# Permet de lancer ce script depuis utils/ (ou n'importe quel dossier) :
+# la racine du projet (qui contient src/) est ajoutée au chemin d'import.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 
 from sklearn.metrics import classification_report
 from sklearn.model_selection import GroupShuffleSplit
@@ -18,8 +25,8 @@ from sklearn.model_selection import GroupShuffleSplit
 from src.dataset import build_dataset, list_csv_files, load_annotations, WINDOW_SIZE
 from src.predict import _smooth, load_model
 
-DATA_FOLDER = "data"
-ANNOTATIONS = "annotations.csv"
+DATA_FOLDER = os.path.join(ROOT, "data")
+ANNOTATIONS = os.path.join(ROOT, "annotations.csv")
 PERSISTENCE_VALUES = [1, 2, 3, 5, 8]
 
 

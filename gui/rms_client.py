@@ -36,10 +36,8 @@ def normalize_endpoint(url):
                          "par exemple https://api-rms.appesca.com")
     return host, secure
 
-
 # Erreurs passagères de Cloudflare / du serveur : réessayées automatiquement.
 RETRY_STATUS = (429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 530)
-
 
 def make_http_client(pool_size=64):
     """
@@ -61,7 +59,6 @@ def make_http_client(pool_size=64):
     proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy") \
         or os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
     return urllib3.ProxyManager(proxy, **options) if proxy else urllib3.PoolManager(**options)
-
 
 def make_client(endpoint, access_key, secret_key, region=DEFAULT_REGION, pool_size=64):
     from minio import Minio
@@ -492,6 +489,58 @@ def parse_mappings(text):
     return codes
 
 
+# ------------------------------------------------- tri par mapping (site)
+
+NO_MAPPING_FOLDER = "_sans_mapping"
+_INVALID_NAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_DAY_PATH = re.compile(r"(?:^|/)(\d{4})/(\d{2})/(\d{2})/")
+
+
+def mapping_folder_name(mapping):
+    """Nom de dossier sûr (Windows) pour un code mapping ; vide -> « _sans_mapping »."""
+    name = _INVALID_NAME.sub("_", str(mapping or "")).strip().rstrip(". ")
+    return name or NO_MAPPING_FOLDER
+
+
+def sorted_file_name(key):
+    """
+    Nom du JSON extrait, préfixé par le jour lu dans le chemin pour garder l'ordre
+    chronologique dans le dossier du site :
+    « MG/2026/01/05/saltec_08h15min00s_ab12.json.gz » -> « 2026-01-05_saltec_08h15min00s_ab12.json ».
+    """
+    name = key.rsplit("/", 1)[-1]
+    if name.endswith(".gz"):
+        name = name[:-3]
+    if not name.endswith(".json"):
+        name += ".json"
+    day = _DAY_PATH.search(key)
+    return f"{day.group(1)}-{day.group(2)}-{day.group(3)}_{name}" if day else name
+
+
+def payload_mapping(data):
+    """Valeur de l'attribut « mapping » d'un JSON SALTEC décompressé ('' si absent ou illisible)."""
+    try:
+        parsed = json.loads(data.decode("utf-8", errors="replace"))
+    except ValueError:
+        return ""
+    return str(parsed.get("mapping") or "").strip() if isinstance(parsed, dict) else ""
+
+
+def existing_sorted_files(output_dir):
+    """Noms des JSON déjà extraits (dossier/site/fichier) : permet de reprendre sans re-télécharger."""
+    names = set()
+    try:
+        folders = [e for e in os.scandir(output_dir) if e.is_dir()]
+    except OSError:
+        return names
+    for folder in folders:
+        try:
+            names.update(e.name for e in os.scandir(folder.path) if e.is_file())
+        except OSError:
+            continue
+    return names
+
+
 # ------------------------------------------------- téléchargement parallèle
 
 DOWNLOAD_MAX_WORKERS = 64
@@ -521,7 +570,7 @@ def expand_prefixes(client, bucket, prefixes, should_stop=lambda: False):
 
 def fast_download(client, bucket, output_dir, base_prefix="", keys=None, prefixes=None,
                   workers=32, list_workers=8, zip_path=None, decompress=False, skip_existing=True,
-                  should_stop=lambda: False, on_progress=None, progress_every=0.5):
+                  group_by_mapping=False, should_stop=lambda: False, on_progress=None, progress_every=0.5):
     """
     Télécharge beaucoup de petits fichiers vite :
       - les dossiers sont listés en parallèle (un fil par sous-dossier/jour) ;
@@ -531,7 +580,10 @@ def fast_download(client, bucket, output_dir, base_prefix="", keys=None, prefixe
         de main TLS à chaque fichier) ;
       - option `zip_path` : tout est écrit dans UNE archive ZIP au lieu de
         250 000 fichiers (beaucoup plus rapide sous Windows : l'antivirus et le
-        système de fichiers ralentissent fortement la création de petits fichiers).
+        système de fichiers ralentissent fortement la création de petits fichiers) ;
+      - option `group_by_mapping` : chaque fichier est décompressé et rangé dans
+        un dossier portant la valeur de son attribut « mapping » (un dossier par
+        site), sous le nom « AAAA-MM-JJ_<fichier>.json ».
     `keys` (sélection) et/ou `prefixes` (dossiers) indiquent quoi télécharger ;
     les chemins sont rendus relatifs à `base_prefix`.
     Les callbacks sont appelés depuis le fil appelant uniquement.
@@ -544,7 +596,12 @@ def fast_download(client, bucket, output_dir, base_prefix="", keys=None, prefixe
 
     workers = max(1, min(int(workers), DOWNLOAD_MAX_WORKERS))
     stats = {"listes": 0, "telecharges": 0, "deja_presents": 0, "erreurs": 0, "octets": 0,
-             "listage_termine": False, "derniere_erreur": "", "debut": time.time()}
+             "listage_termine": False, "derniere_erreur": "", "debut": time.time(), "sites": 0}
+    if group_by_mapping:
+        decompress = True
+    already_sorted = (existing_sorted_files(output_dir)
+                      if group_by_mapping and skip_existing and zip_path is None else set())
+    sites_seen = set()
     key_queue = Queue(maxsize=workers * 8)
     listing_error = []
     DONE = object()
@@ -601,7 +658,26 @@ def fast_download(client, bucket, output_dir, base_prefix="", keys=None, prefixe
         finally:
             put(DONE)
 
+    def download_sorted(key):
+        name = sorted_file_name(key)
+        if name in already_sorted:
+            return key, name, None, "deja_present"
+        raw = fetch_object(client, bucket, key, max_bytes=2 ** 40)
+        data = gzip.decompress(raw) if raw[:2] == b"\x1f\x8b" else raw
+        rel = f"{mapping_folder_name(payload_mapping(data))}/{name}"
+        if zip_path is None:
+            target = os.path.join(output_dir, *rel.split("/"))
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            tmp = target + ".part"
+            with open(tmp, "wb") as handle:
+                handle.write(data)
+            os.replace(tmp, target)
+            return key, rel, len(raw), "telecharge"
+        return key, rel, data, "telecharge"
+
     def download(key):
+        if group_by_mapping:
+            return download_sorted(key)
         rel = relative(key)
         target = os.path.join(output_dir, *rel.split("/")) if zip_path is None else None
         if target is not None and skip_existing and os.path.exists(target):
@@ -655,6 +731,9 @@ def fast_download(client, bucket, output_dir, base_prefix="", keys=None, prefixe
             if status == "deja_present":
                 stats["deja_presents"] += 1
                 continue
+            if group_by_mapping:
+                sites_seen.add(rel.split("/", 1)[0])
+                stats["sites"] = len(sites_seen)
             if archive is not None:
                 archive.writestr(rel, payload)
                 stats["octets"] += len(payload)

@@ -135,7 +135,7 @@ class MainWindow(QMainWindow):
                 self,
                 "Modèle non trouvé",
                 "'model/random_forest.pkl' est introuvable.\n\n"
-                "Lancez d'abord `python main.py` à la racine du projet pour "
+                "Lancez d'abord `python utils/main.py` pour "
                 "entraîner et sauvegarder le modèle avant d'utiliser cette interface.",
             )
 
