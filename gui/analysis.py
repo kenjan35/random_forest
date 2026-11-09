@@ -5,9 +5,7 @@ lisibles, et prépare les données nécessaires au graphique.
 """
 
 import os
-
 import pandas as pd
-
 from gui.analysis_utils import (
     TANK_VOLUME_COLUMN,
     detect_sensor_glitches,
@@ -25,10 +23,8 @@ from src.predict import (
     zero_bridged_losses_for,
 )
 
-
 class AnalysisError(Exception):
     """Erreur "propre" à afficher telle quelle dans l'interface."""
-
 
 def _read_input(csv_path):
     if not os.path.exists(csv_path):
@@ -46,7 +42,6 @@ def _read_input(csv_path):
         )
     return df, clean_fuel(df[FUEL_COLUMN]), df[STATUS_COLUMN].to_numpy(), df[TIMESTAMP_COLUMN].to_numpy()
 
-
 def _predict(csv_path, fuel, status):
     try:
         return predict_arrays(fuel, status)
@@ -57,7 +52,6 @@ def _predict(csv_path, fuel, status):
         ) from exc
     except Exception as exc:
         raise AnalysisError(f"Erreur pendant l'analyse de {csv_path} : {exc}") from exc
-
 
 def _build_result(csv_path, df, fuel, status, timestamps, prediction, events, events_ignored):
     return {
@@ -79,7 +73,6 @@ def _build_result(csv_path, df, fuel, status, timestamps, prediction, events, ev
         "has_sensor_glitch": len(events_ignored) > 0,
         "has_issue": len(events) > 0 or len(events_ignored) > 0,
     }
-
 
 def analyze_file(csv_path):
     """
