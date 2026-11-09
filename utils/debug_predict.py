@@ -32,22 +32,26 @@ def main():
 
     csv_path = sys.argv[1]
     model, threshold = load_model()
-
     X = create_windows(create_features(load_csv(csv_path)), WINDOW_SIZE)
     if len(X) == 0:
         print(f"Fichier trop court (moins de {WINDOW_SIZE} relevés).")
         return
-
     proba = model.predict_proba(X)[:, 1]
+    _print_summary(csv_path, X, proba, model.n_features_in_, threshold)
+    _print_top_windows(X, proba)
 
+
+def _print_summary(csv_path, X, proba, feature_count, threshold):
     print(f"Fichier : {csv_path}")
-    print(f"n_features_in_ du modèle : {model.n_features_in_}  |  features fournies : {X.shape[1]}")
+    print(f"n_features_in_ du modèle : {feature_count}  |  features fournies : {X.shape[1]}")
     print(f"Seuil : {threshold}")
     print(f"Proba max sur tout le fichier : {proba.max():.4f}  (fenêtre {proba.argmax()})")
     print(f"Proba moyenne : {proba.mean():.4f}")
     print(f"Nombre de fenêtres avec proba > 0.1 : {(proba > 0.1).sum()}")
     print(f"Nombre de fenêtres avec proba >= seuil ({threshold:.3f}) : {(proba >= threshold).sum()}")
 
+
+def _print_top_windows(X, proba):
     top20 = np.sort(np.argsort(proba)[::-1][:20])
     print("\nTop 20 fenêtres les plus suspectes selon le modèle :")
     for idx in top20:

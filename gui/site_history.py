@@ -2,6 +2,8 @@ import os
 import sqlite3
 from datetime import datetime
 
+from gui.site_history_utils import event_hour, event_timestamp, fuel_loss, result_site
+
 
 DATABASE_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "site_history.db"
@@ -22,6 +24,17 @@ def _connect():
 
 
 def _ensure_schema(connection):
+    _create_tables(connection)
+    _migrate_columns(connection)
+    connection.commit()
+
+
+def _create_tables(connection):
+    _create_site_tables(connection)
+    _create_theft_hours_table(connection)
+
+
+def _create_site_tables(connection):
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS site_history (
@@ -46,6 +59,7 @@ def _ensure_schema(connection):
         )
         """
     )
+def _create_theft_hours_table(connection):
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS theft_hours (
@@ -60,6 +74,7 @@ def _ensure_schema(connection):
         )
         """
     )
+def _migrate_columns(connection):
     for table in ("site_history", "site_extractions"):
         columns = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
         if "fuel_loss" not in columns:
@@ -69,7 +84,47 @@ def _ensure_schema(connection):
     theft_hour_columns = {row[1] for row in connection.execute("PRAGMA table_info(theft_hours)")}
     if "event_timestamp" not in theft_hour_columns:
         connection.execute("ALTER TABLE theft_hours ADD COLUMN event_timestamp TEXT")
-    connection.commit()
+
+
+def _record_event(connection, site, period_start, period_end, event_index, event):
+    timestamp = event_timestamp(event)
+    hour_bucket = event_hour(event)
+    if hour_bucket is None:
+        return
+    connection.execute(
+        """
+        INSERT INTO theft_hours
+            (site, period_start, period_end, event_index, hour_bucket, fuel_loss, event_timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (site, period_start, period_end, event_index, hour_bucket,
+         float(event.get("fuel_drop") or 0), timestamp),
+    )
+
+
+def _record_result(connection, result, period_start, period_end, now):
+    site = result_site(result)
+    if not site or result.get("error"):
+        return
+    events = result.get("events", [])
+    total_fuel_loss = fuel_loss(events)
+    connection.execute(
+        """
+        INSERT INTO site_extractions
+            (site, period_start, period_end, theft_count, fuel_loss, last_seen)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(site, period_start, period_end) DO UPDATE SET
+            theft_count = excluded.theft_count, fuel_loss = excluded.fuel_loss,
+            last_seen = excluded.last_seen
+        """,
+        (site, period_start, period_end, int(result.get("n_events") or 0), total_fuel_loss, now),
+    )
+    connection.execute(
+        "DELETE FROM theft_hours WHERE site = ? AND period_start = ? AND period_end = ?",
+        (site, period_start, period_end),
+    )
+    for event_index, event in enumerate(events):
+        _record_event(connection, site, period_start, period_end, event_index, event)
 
 
 def record_extraction(results, period_start, period_end):
@@ -78,44 +133,7 @@ def record_extraction(results, period_start, period_end):
     connection = _connect()
     try:
         for result in results:
-            site = str(result.get("site") or "").strip()
-            if not site or result.get("error"):
-                continue
-            theft_count = int(result.get("n_events") or 0)
-            fuel_loss = sum(float(event.get("fuel_drop") or 0) for event in result.get("events", []))
-            connection.execute(
-                """
-                INSERT INTO site_extractions
-                    (site, period_start, period_end, theft_count, fuel_loss, last_seen)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(site, period_start, period_end) DO UPDATE SET
-                    theft_count = excluded.theft_count,
-                    fuel_loss = excluded.fuel_loss,
-                    last_seen = excluded.last_seen
-                """,
-                (site, period_start, period_end, theft_count, fuel_loss, now),
-            )
-            connection.execute(
-                "DELETE FROM theft_hours WHERE site = ? AND period_start = ? AND period_end = ?",
-                (site, period_start, period_end),
-            )
-            for event_index, event in enumerate(result.get("events", [])):
-                timestamp = str(event.get("ts_start") or "").replace("Z", "+00:00")
-                try:
-                    hour_bucket = datetime.fromisoformat(timestamp).hour
-                except ValueError:
-                    continue
-                connection.execute(
-                    """
-                    INSERT INTO theft_hours
-                        (site, period_start, period_end, event_index, hour_bucket, fuel_loss, event_timestamp)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        site, period_start, period_end, event_index, hour_bucket,
-                        float(event.get("fuel_drop") or 0), timestamp,
-                    ),
-                )
+            _record_result(connection, result, period_start, period_end, now)
         connection.commit()
     finally:
         connection.close()

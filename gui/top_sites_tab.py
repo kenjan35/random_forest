@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date
 
 import numpy as np
 
@@ -34,18 +34,11 @@ from gui.site_history import (
     get_top_sites,
     get_top_theft_hours,
 )
+from gui.top_sites_utils import fit_table_height, parse_timestamp
 
 DEFAULT_HOUR_RANGE_DAYS = 30   # période affichée par défaut sur le graphique des heures
 HOVER_RADIUS_PX = 10
 CLICK_TOLERANCE_PX = 4   # au-delà, un clic-glisser est un déplacement, pas un clic
-
-
-def _parse_timestamp(value):
-    try:
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return parsed.replace(tzinfo=None)
 
 
 class ClickableCard(QFrame):
@@ -171,7 +164,7 @@ class TopSitesTab(QWidget):
         self.daily_axes = self.daily_figure.add_subplot(111)
         self.daily_canvas.mpl_connect("motion_notify_event", self._on_daily_motion)
         self.daily_canvas.mpl_connect("button_release_event", self._on_daily_click)
-        self.daily_canvas.mpl_connect("figure_leave_event", lambda _e: QToolTip.hideText())
+        self.daily_canvas.mpl_connect("figure_leave_event", lambda *_: QToolTip.hideText())
         root.addWidget(self.daily_canvas)
 
         # --- heures des vols ---
@@ -210,7 +203,7 @@ class TopSitesTab(QWidget):
         self.hour_canvas.mpl_connect("scroll_event", self._on_hour_scroll)
         self.hour_canvas.mpl_connect("motion_notify_event", self._on_hour_motion)
         self.hour_canvas.mpl_connect("button_release_event", self._on_hour_button_release)
-        self.hour_canvas.mpl_connect("figure_leave_event", lambda _e: QToolTip.hideText())
+        self.hour_canvas.mpl_connect("figure_leave_event", lambda *_: QToolTip.hideText())
         root.addWidget(self.hour_canvas)
 
         # --- alertes récentes ---
@@ -270,7 +263,7 @@ class TopSitesTab(QWidget):
 
         rows = get_top_sites()
         self.table.setRowCount(len(rows))
-        for rank, (site, theft_count, site_loss, _extractions, last_seen) in enumerate(rows, start=1):
+        for rank, (site, theft_count, site_loss, _, last_seen) in enumerate(rows, start=1):
             values = (str(rank), site, str(theft_count), f"{float(site_loss or 0):.1f} L",
                       str(last_seen).replace("T", " ")[:16])
             for column, value in enumerate(values):
@@ -286,7 +279,7 @@ class TopSitesTab(QWidget):
         self._peak_hour = int(hour_rows[0][0]) if hour_rows else None
         self.metric_values["peak"].setText(f"{self._peak_hour:02d}h" if hour_rows else "-")
         self.hours_table.setRowCount(len(hour_rows))
-        for rank, (hour_bucket, theft_count, _total) in enumerate(hour_rows, start=1):
+        for rank, (hour_bucket, theft_count, _) in enumerate(hour_rows, start=1):
             hour = int(hour_bucket)
             values = (str(rank), f"{hour:02d}:00 - {hour:02d}:59", str(theft_count))
             for column, value in enumerate(values):
@@ -305,7 +298,7 @@ class TopSitesTab(QWidget):
     def _load_hour_points(self):
         points = []
         for timestamp, hour_bucket, fuel, site in get_theft_hour_points():
-            parsed = _parse_timestamp(timestamp)
+            parsed = parse_timestamp(timestamp)
             if parsed is not None:
                 points.append((parsed, int(hour_bucket), float(fuel or 0), str(site)))
         self._all_hour_points = points
@@ -381,7 +374,7 @@ class TopSitesTab(QWidget):
         dialog = self._detail_dialog()
         if key in ("sites", "fuel"):
             rows = [(site, count, loss, last_seen)
-                    for site, count, loss, _n, last_seen in get_top_sites(limit=100000)]
+                    for site, count, loss, _, last_seen in get_top_sites(limit=100000)]
             if key == "fuel":
                 rows.sort(key=lambda r: -float(r[2] or 0))
                 dialog.show_sites("Fuel volé par site", rows, "Trié du site le plus touché au moins touché.")
@@ -428,7 +421,7 @@ class TopSitesTab(QWidget):
 
     def _daily_index(self, event):
         """Jour sous le curseur (index), uniquement sur une barre non vide."""
-        days, counts, _losses = self._daily
+        days, counts, _ = self._daily
         if not days or event.inaxes is not self.daily_axes or event.xdata is None:
             return None
         index = int(round(event.xdata - date2num(days[0])))
@@ -481,7 +474,7 @@ class TopSitesTab(QWidget):
         points = self._hour_points_at_cursor(event)
         if points:
             if len(points) == 1:
-                ts, _h, loss, site = points[0]
+                ts, _, loss, site = points[0]
                 return f"{site}\n{ts:%d/%m/%Y %H:%M} · {loss:.1f} L\nCliquer pour tous les vols de ce site", points
             return f"{len(points)} vols superposés", points
         hour = self._hour_bar_at_cursor(event)
@@ -588,10 +581,4 @@ class TopSitesTab(QWidget):
 
     @staticmethod
     def _fit_table_height(table):
-        visible_rows = min(max(table.rowCount(), 1), 5)
-        height = (
-            table.horizontalHeader().height()
-            + visible_rows * table.verticalHeader().defaultSectionSize()
-            + 2 * table.frameWidth()
-        )
-        table.setFixedHeight(height)
+        table.setFixedHeight(fit_table_height(table))

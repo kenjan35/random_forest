@@ -9,8 +9,6 @@ import os
 import pandas as pd
 
 from gui.analysis_utils import (
-    GLITCH_BASELINE_RATIO,
-    GLITCH_OVERLAP_THRESHOLD,
     TANK_VOLUME_COLUMN,
     detect_sensor_glitches,
     find_csv_files,

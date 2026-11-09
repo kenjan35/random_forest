@@ -13,13 +13,14 @@ def create_windows(features, window_size) -> np.ndarray:
     delta, amplitude cumulée, pente, [delta relatif cumulé]).
     L'ordre des colonnes doit rester identique : le modèle entraîné en dépend.
     """
-    fuel = features[:, 0]
-    delta = features[:, 1]
-    has_rel = features.shape[1] >= 4
+    fuel, delta, has_rel = features[:, 0], features[:, 1], features.shape[1] >= 4
     n = len(fuel) - window_size + 1
     if n <= 0:
         return np.zeros((0, 9 if has_rel else 8))
+    return _aggregate_windows(fuel, delta, features, window_size, has_rel)
 
+
+def _aggregate_windows(fuel, delta, features, window_size, has_rel):
     fuel_windows = sliding_window_view(fuel, window_size)
     delta_windows = sliding_window_view(delta, window_size)
 

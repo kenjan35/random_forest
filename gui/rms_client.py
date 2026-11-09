@@ -9,10 +9,28 @@ Developer Integration Guide » v1.0 :
 """
 
 import gzip
-import json
 import os
-import re
-from datetime import datetime
+
+from gui.rms_client_utils import (
+    entry_name,
+    env_credentials,
+    is_access_denied,
+    normalize_endpoint,
+)
+from gui.rms_payload_utils import (
+    decode_payload,
+    format_date,
+    format_size,
+    payload_mapping,
+    payload_summary,
+)
+from gui.rms_mapping_utils import (
+    existing_sorted_files, mapping_folder_name, sorted_file_name,
+)
+from gui.rms_path_utils import output_path
+from gui.rms_error_utils import describe_http_error, error_message
+from gui.rms_listing_utils import to_entry
+from gui.rms_extract_utils import index_row
 
 DEFAULT_ENDPOINT = "https://api-rms.appesca.com"
 DEFAULT_BUCKET = "rms-saltec"
@@ -25,16 +43,6 @@ LIST_BATCH = 500
 
 
 # ------------------------------------------------------------------ connexion
-
-def normalize_endpoint(url):
-    """'https://api-rms.appesca.com/' -> ('api-rms.appesca.com', True)."""
-    text = str(url or "").strip()
-    secure = not text.lower().startswith("http://")
-    host = re.sub(r"^https?://", "", text, flags=re.IGNORECASE).strip().rstrip("/")
-    if not host or "/" in host:
-        raise ValueError("Point de terminaison invalide : indiquez seulement l'adresse du serveur, "
-                         "par exemple https://api-rms.appesca.com")
-    return host, secure
 
 # Erreurs passagères de Cloudflare / du serveur : réessayées automatiquement.
 RETRY_STATUS = (429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 530)
@@ -95,28 +103,10 @@ def check_endpoint(endpoint):
     return False, described or f"Le serveur {host} a répondu HTTP {status}."
 
 
-def env_credentials():
-    return os.environ.get(ENV_ACCESS_KEY, ""), os.environ.get(ENV_SECRET_KEY, "")
-
-
 # -------------------------------------------------------------------- listage
 
-def entry_name(key, prefix):
-    """Nom affiché d'un objet ou dossier, relatif au dossier courant."""
-    return key[len(prefix):].rstrip("/") if key.startswith(prefix) else key.rstrip("/")
 
-
-def _to_entry(item, prefix):
-    key = str(item.object_name)
-    is_dir = bool(getattr(item, "is_dir", False)) or key.endswith("/")
-    modified = getattr(item, "last_modified", None)
-    return {
-        "key": key,
-        "name": entry_name(key, prefix),
-        "is_dir": is_dir,
-        "size": None if is_dir else int(getattr(item, "size", 0) or 0),
-        "modified": modified.astimezone().replace(tzinfo=None) if modified else None,
-    }
+_to_entry = to_entry
 
 
 def list_folder(client, bucket, prefix, should_stop=lambda: False, on_batch=None, batch_size=LIST_BATCH):
@@ -143,10 +133,6 @@ def list_folder(client, bucket, prefix, should_stop=lambda: False, on_batch=None
     if batch and on_batch and not should_stop():
         on_batch(batch)
     return total
-
-
-def is_access_denied(exc):
-    return getattr(exc, "code", None) == "AccessDenied"
 
 
 def list_root(client, bucket):
@@ -196,162 +182,14 @@ def fetch_object(client, bucket, key, max_bytes=PREVIEW_MAX_BYTES):
         response.release_conn()
 
 
-def decode_payload(raw):
-    """
-    Décompresse (si gzip) et met en forme le JSON.
-    Retourne (texte_affiché, données_json_ou_None).
-    """
-    data = gzip.decompress(raw) if raw[:2] == b"\x1f\x8b" else raw
-    text = data.decode("utf-8", errors="replace")
-    try:
-        parsed = json.loads(text)
-    except ValueError:
-        return text, None
-    return json.dumps(parsed, indent=2, ensure_ascii=False), parsed
-
-
-def payload_summary(parsed):
-    """Résumé lisible d'un fichier SALTEC : mapping, siteId, nombre de mesures, période."""
-    if not isinstance(parsed, dict):
-        return ""
-    parts = []
-    for key in ("mapping", "siteId", "ingester"):
-        if parsed.get(key):
-            parts.append(str(parsed[key]))
-    records = parsed.get("data")
-    if isinstance(records, list):
-        parts.append(f"{len(records)} mesure{'s' if len(records) > 1 else ''}")
-        stamps = sorted(str(r.get("Timestamp")) for r in records if isinstance(r, dict) and r.get("Timestamp"))
-        if stamps:
-            parts.append(stamps[0].replace("T", " ") if len(stamps) == 1
-                         else f"{stamps[0].replace('T', ' ')} → {stamps[-1].replace('T', ' ')}")
-    return " · ".join(parts)
-
-
-def format_size(size):
-    if size is None:
-        return ""
-    for unit in ("o", "Ko", "Mo", "Go"):
-        if size < 1024 or unit == "Go":
-            return f"{size:.0f} {unit}" if unit == "o" else f"{size:.1f} {unit}"
-        size /= 1024
-
-
-def format_date(value):
-    return value.strftime("%d/%m/%Y %H:%M") if isinstance(value, datetime) else ""
-
-
 # -------------------------------------------------------------------- erreurs
-
-# Codes de Cloudflare (le guide indique que l'API passe par un tunnel Cloudflare) :
-# la requête n'a pas atteint le stockage, les clés ne sont pas en cause.
-_CLOUDFLARE_STATUS = {
-    520: "le serveur de stockage a renvoyé une réponse inattendue",
-    521: "le serveur de stockage refuse la connexion (service arrêté ?)",
-    522: "le serveur de stockage ne répond pas (délai de connexion dépassé)",
-    523: "le serveur de stockage est injoignable depuis Cloudflare",
-    524: "le serveur de stockage a mis trop de temps à répondre",
-    525: "échec de la négociation SSL avec le serveur de stockage",
-    526: "certificat SSL du serveur de stockage invalide",
-    530: "Cloudflare n'arrive pas à joindre le serveur de stockage",
-}
-_CLOUDFLARE_CODES = {
-    "1016": "nom DNS du serveur introuvable",
-    "1033": "le tunnel Cloudflare vers le serveur est arrêté",
-}
-_S3_MESSAGES = {
-    "InvalidAccessKeyId": "Clé d'accès invalide ou inconnue.",
-    "SignatureDoesNotMatch": "Clé secrète incorrecte.",
-    "AccessDenied": "Accès refusé : vos droits ne permettent pas de lister ou lire cet emplacement.",
-    "NoSuchBucket": "Ce bucket n'existe pas ou ne vous est pas accessible.",
-    "NoSuchKey": "Ce fichier n'existe plus.",
-    "RequestTimeTooSkewed": "L'horloge de votre ordinateur est décalée : remettez-la à l'heure puis réessayez.",
-}
-
-
-def describe_http_error(exc, endpoint="api-rms.appesca.com"):
-    """
-    Message clair pour une réponse non-XML du serveur (page d'erreur HTML de
-    Cloudflare ou d'un proxy au lieu d'une réponse S3). None sinon.
-    """
-    text = str(exc)
-    status = getattr(exc, "_code", None) or getattr(exc, "status_code", None)
-    if status is None:
-        match = re.search(r"Response code:\s*(\d{3})", text)
-        status = match.group(1) if match else None
-    if status is None or ("non-XML" not in text and not str(status).startswith("5")):
-        return None
-    status = int(status)
-    if status < 500:
-        return None
-
-    cause = _CLOUDFLARE_STATUS.get(status, "erreur côté serveur")
-    cf_match = re.search(r"(?:error code:?|Error)\s*(1\d{3})", text, re.IGNORECASE)
-    if cf_match:
-        cf_code = cf_match.group(1)
-        detail = f" : {_CLOUDFLARE_CODES[cf_code]}" if cf_code in _CLOUDFLARE_CODES else ""
-        cause += f" (Cloudflare {cf_code}{detail})"
-    return (
-        f"Le serveur {endpoint} est indisponible (HTTP {status}) : {cause}.\n\n"
-        "Vos clés d'accès ne sont pas en cause : la requête n'a pas atteint le stockage.\n"
-        "Réessayez plus tard ou prévenez l'équipe BIG DATA & AI."
-    )
-
-
-def error_message(exc, endpoint="api-rms.appesca.com"):
-    """Message en français pour n'importe quelle erreur d'accès au stockage."""
-    code = getattr(exc, "code", None)
-    if code in _S3_MESSAGES:
-        return _S3_MESSAGES[code]
-    http = describe_http_error(exc, endpoint)
-    if http:
-        return http
-    name = type(exc).__name__
-    if name in ("MaxRetryError", "NewConnectionError", "ConnectionError", "NameResolutionError") \
-            or "Max retries exceeded" in str(exc):
-        return (f"Impossible de joindre {endpoint}. Vérifiez votre connexion Internet "
-                "et l'adresse du point de terminaison.")
-    if isinstance(exc, ValueError):
-        return str(exc)
-    if code:
-        return f"Erreur S3 ({code}) : {getattr(exc, 'message', '') or exc}"
-    return f"{name} : {exc}"
-
-
 # --------------------------------------------------------- extraction en lot
-
-def day_prefixes(country, start, end):
-    """['MG/2026/01/01/', ...] pour chaque jour de [start, end] (dates incluses)."""
-    from datetime import timedelta
-
-    if end < start:
-        start, end = end, start
-    days = (end - start).days + 1
-    return [f"{country}/{(start + timedelta(days=i)):%Y/%m/%d}/" for i in range(days)]
-
-
-def output_path(output_dir, key, decompress):
-    """Chemin local qui reproduit l'arborescence du bucket (…/MG/2026/01/01/fichier.json)."""
-    relative = key[:-3] if decompress and key.endswith(".gz") else key
-    parts = [p for p in relative.split("/") if p]
-    if any(p in ("..", ".") for p in parts):
-        raise ValueError(f"Nom d'objet invalide : {key}")
-    return os.path.join(output_dir, *parts)
 
 
 INDEX_COLUMNS = ["key", "mapping", "siteId", "ingester", "mesures", "debut", "fin", "statut", "fichier_local"]
 
 
-def _index_row(key, parsed, status, path=""):
-    parsed = parsed if isinstance(parsed, dict) else {}
-    records = parsed.get("data") if isinstance(parsed.get("data"), list) else []
-    stamps = sorted(str(r.get("Timestamp")) for r in records if isinstance(r, dict) and r.get("Timestamp"))
-    return {
-        "key": key, "mapping": parsed.get("mapping", ""), "siteId": parsed.get("siteId", ""),
-        "ingester": parsed.get("ingester", ""), "mesures": len(records),
-        "debut": stamps[0] if stamps else "", "fin": stamps[-1] if stamps else "",
-        "statut": status, "fichier_local": path,
-    }
+_index_row = index_row
 
 
 def _process_object(client, bucket, key, output_dir, decompress, mappings, skip_existing):
@@ -360,7 +198,7 @@ def _process_object(client, bucket, key, output_dir, decompress, mappings, skip_
     if skip_existing and os.path.exists(path):
         return _index_row(key, None, "deja_present", path), 0
     raw = fetch_object(client, bucket, key, max_bytes=2 ** 40)
-    text, parsed = decode_payload(raw)
+    _, parsed = decode_payload(raw)
     if mappings:
         mapping = str((parsed or {}).get("mapping", "")).strip().upper() if isinstance(parsed, dict) else ""
         if mapping not in mappings:
@@ -451,94 +289,6 @@ def extract_range(client, bucket, prefixes, output_dir, decompress=True, mapping
             index_file.close()
     report()
     return stats
-
-
-def read_mappings_from_excel(path):
-    """Codes de la colonne « mapping » d'un fichier Excel (cherchée dans les 30 premières lignes)."""
-    import unicodedata
-    from openpyxl import load_workbook
-
-    def norm(value):
-        return unicodedata.normalize("NFKC", str(value)).replace("\ufeff", "").replace("\xa0", " ").strip().casefold()
-
-    workbook = load_workbook(path, read_only=True, data_only=True)
-    try:
-        sheet = workbook.active
-        cell = next((c for row in sheet.iter_rows(min_row=1, max_row=30) for c in row
-                     if c.value is not None and norm(c.value) == "mapping"), None)
-        if cell is None:
-            raise ValueError("La colonne 'mapping' est introuvable dans les 30 premières lignes.")
-        codes = []
-        for (value,) in sheet.iter_rows(min_row=cell.row + 1, min_col=cell.column,
-                                        max_col=cell.column, values_only=True):
-            code = str(value).strip().upper() if value is not None else ""
-            if code and code not in codes:
-                codes.append(code)
-        return codes
-    finally:
-        workbook.close()
-
-
-def parse_mappings(text):
-    """'TATS032, tanj044 ; MGA012' -> ['TATS032', 'TANJ044', 'MGA012']."""
-    codes = []
-    for code in re.split(r"[\s,;]+", str(text or "")):
-        code = code.strip().upper()
-        if code and code not in codes:
-            codes.append(code)
-    return codes
-
-
-# ------------------------------------------------- tri par mapping (site)
-
-NO_MAPPING_FOLDER = "_sans_mapping"
-_INVALID_NAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
-_DAY_PATH = re.compile(r"(?:^|/)(\d{4})/(\d{2})/(\d{2})/")
-
-
-def mapping_folder_name(mapping):
-    """Nom de dossier sûr (Windows) pour un code mapping ; vide -> « _sans_mapping »."""
-    name = _INVALID_NAME.sub("_", str(mapping or "")).strip().rstrip(". ")
-    return name or NO_MAPPING_FOLDER
-
-
-def sorted_file_name(key):
-    """
-    Nom du JSON extrait, préfixé par le jour lu dans le chemin pour garder l'ordre
-    chronologique dans le dossier du site :
-    « MG/2026/01/05/saltec_08h15min00s_ab12.json.gz » -> « 2026-01-05_saltec_08h15min00s_ab12.json ».
-    """
-    name = key.rsplit("/", 1)[-1]
-    if name.endswith(".gz"):
-        name = name[:-3]
-    if not name.endswith(".json"):
-        name += ".json"
-    day = _DAY_PATH.search(key)
-    return f"{day.group(1)}-{day.group(2)}-{day.group(3)}_{name}" if day else name
-
-
-def payload_mapping(data):
-    """Valeur de l'attribut « mapping » d'un JSON SALTEC décompressé ('' si absent ou illisible)."""
-    try:
-        parsed = json.loads(data.decode("utf-8", errors="replace"))
-    except ValueError:
-        return ""
-    return str(parsed.get("mapping") or "").strip() if isinstance(parsed, dict) else ""
-
-
-def existing_sorted_files(output_dir):
-    """Noms des JSON déjà extraits (dossier/site/fichier) : permet de reprendre sans re-télécharger."""
-    names = set()
-    try:
-        folders = [e for e in os.scandir(output_dir) if e.is_dir()]
-    except OSError:
-        return names
-    for folder in folders:
-        try:
-            names.update(e.name for e in os.scandir(folder.path) if e.is_file())
-        except OSError:
-            continue
-    return names
 
 
 # ------------------------------------------------- téléchargement parallèle
@@ -718,7 +468,7 @@ def fast_download(client, bucket, output_dir, base_prefix="", keys=None, prefixe
         for future in done:
             pending.discard(future)
             try:
-                key, rel, payload, status = future.result()
+                _, rel, payload, status = future.result()
             except Exception as exc:
                 stats["erreurs"] += 1
                 stats["derniere_erreur"] = error_message(exc)

@@ -24,30 +24,28 @@ def main():
     # Tous les chemins relatifs (assets/, model/, data/) partent de la racine du
     # projet, même si l'application est lancée depuis un autre dossier.
     os.chdir(BASE_DIR)
-
-    # Sous Windows, lancé via pythonw.exe (pas un .exe compilé), la barre
-    # des tâches affiche souvent l'icône de Python au lieu de la nôtre tant
-    # que le processus n'a pas son propre identifiant d'application. Sans
-    # ça, setWindowIcon() ne suffit pas toujours pour la barre des tâches
-    # (il fonctionne déjà bien pour la barre de titre).
-    if sys.platform == "win32":
-        import ctypes
-        try:
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-                "FuelTheftDetector.App.1"
-            )
-        except Exception:
-            pass  # non bloquant : au pire l'icone par defaut de Python reste affichee
-
+    _set_windows_app_id()
     app = QApplication(sys.argv)
+    _configure_app(app)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
+
+
+def _set_windows_app_id():
+    if sys.platform != "win32":
+        return
+    import ctypes
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("FuelTheftDetector.App.1")
+    except Exception:
+        pass
+
+
+def _configure_app(app):
     app.setStyleSheet(STYLESHEET)
     if os.path.exists(ICON_PATH):
         app.setWindowIcon(QIcon(ICON_PATH))
-
-    window = MainWindow()
-    window.show()
-
-    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

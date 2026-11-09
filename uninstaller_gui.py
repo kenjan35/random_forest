@@ -20,6 +20,9 @@ import threading
 
 import installer_gui as common
 from installer_gui import APP_NAME, BASE_DIR, IS_WINDOWS, NO_WINDOW, VENV_DIR
+from uninstaller_utils import ps_quote
+
+_ps_quote = ps_quote
 
 HISTORY_DB = os.path.join(BASE_DIR, "data", "site_history.db")
 
@@ -48,17 +51,13 @@ def _powershell(command):
     return result.returncode, (result.stdout or "").strip(), (result.stderr or "").strip()
 
 
-def _ps_quote(text):
-    return "'" + str(text).replace("'", "''") + "'"
-
-
 def running_app_processes():
     """Processus Python lancés depuis le venv de CE dossier (l'application ouverte)."""
     if not IS_WINDOWS:
         return []
     code, out, _err = _powershell(
         "Get-Process python,pythonw -ErrorAction SilentlyContinue | "
-        f"Where-Object {{ $_.Path -like ({_ps_quote(VENV_DIR)} + '*') }} | "
+        f"Where-Object {{ $_.Path -like ({ps_quote(VENV_DIR)} + '*') }} | "
         "ForEach-Object { $_.Id }"
     )
     return [int(pid) for pid in out.split() if pid.isdigit()] if code == 0 else []

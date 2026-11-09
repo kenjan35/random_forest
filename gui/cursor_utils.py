@@ -8,7 +8,9 @@ de façon garantie.
 
 import os
 import re
+from functools import partial
 
+from gui.cursor_utils_1 import replace_rect
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtCore import QByteArray, QTimer
 from PySide6.QtGui import QCursor, QIcon, QPainter, QPixmap
@@ -33,15 +35,10 @@ def _get_spinner_frames(size):
     rect_pattern = re.compile(r"<rect\b([^>]*)>")
     frames = []
     for active_index in range(12):
-        rect_index = 0
-
-        def replace_rect(match):
-            nonlocal rect_index
-            opacity = "1" if rect_index == active_index else "0.2"
-            rect_index += 1
-            return f'<rect{match.group(1)} opacity="{opacity}">'
-
-        frame_svg = rect_pattern.sub(replace_rect, svg_without_animation)
+        state = {"active": active_index, "index": 0}
+        frame_svg = rect_pattern.sub(
+            partial(replace_rect, state=state), svg_without_animation
+        )
         renderer = QSvgRenderer(QByteArray(frame_svg.encode("utf-8")))
         pixmap = QPixmap(size, size)
         pixmap.fill(Qt.GlobalColor.transparent)

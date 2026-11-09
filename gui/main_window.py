@@ -15,6 +15,7 @@ from gui.rms_console_tab import RmsConsoleTab
 from gui.chart import FuelChart
 from gui.style import DARK_STYLESHEET, LIGHT_STYLESHEET
 from gui.cursor_utils import apply_pointer_cursor
+from gui.main_window_utils import select_view, update_sidebar_icons
 from src.config import MODEL_PATH
 THEME_TRANSITION_MS = 150
 SIDEBAR_COLLAPSED_WIDTH = 68
@@ -27,6 +28,9 @@ class Sidebar(QWidget):
         self.setFixedWidth(SIDEBAR_COLLAPSED_WIDTH)
 
 class MainWindow(QMainWindow):
+    _update_sidebar_icons = staticmethod(update_sidebar_icons)
+    _select_view = staticmethod(select_view)
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Détection de vol de carburant")
@@ -92,7 +96,7 @@ class MainWindow(QMainWindow):
             button.dark_icon = selected_icon_name
             button.setCheckable(True)
             button.clicked.connect(
-                lambda checked, selected_index=index: self._select_view_and_update(
+                lambda _, selected_index=index: self._select_view_and_update(
                     views, view_buttons, selected_index
                 )
             )
@@ -104,7 +108,7 @@ class MainWindow(QMainWindow):
         self._view_buttons = view_buttons
         self._selected_view_index = 0
 
-        self._update_sidebar_icons(view_buttons, 0, self.dark_mode)
+        update_sidebar_icons(view_buttons, 0, self.dark_mode)
 
         self.theme_btn = QPushButton()
         self._update_theme_button()
@@ -139,26 +143,10 @@ class MainWindow(QMainWindow):
                 "entraîner et sauvegarder le modèle avant d'utiliser cette interface.",
             )
 
-    @staticmethod
-    def _update_sidebar_icons(buttons, selected_index, dark_mode=False):
-        for index, button in enumerate(buttons):
-            icon_name = (
-                button.selected_icon
-                if index == selected_index or dark_mode
-                else button.default_icon
-            )
-            button.setIcon(QIcon(os.path.join("assets", "icons", icon_name)))
-
     def _select_view_and_update(self, stack, buttons, index):
-        self._select_view(stack, buttons, index)
+        select_view(stack, buttons, index)
         self._selected_view_index = index
-        self._update_sidebar_icons(buttons, index, self.dark_mode)
-
-    @staticmethod
-    def _select_view(stack, buttons, index):
-        stack.setCurrentIndex(index)
-        for button_index, button in enumerate(buttons):
-            button.setChecked(button_index == index)
+        update_sidebar_icons(buttons, index, self.dark_mode)
 
     def _update_theme_button(self):
         if self.dark_mode:
@@ -175,7 +163,7 @@ class MainWindow(QMainWindow):
         app.setStyleSheet(DARK_STYLESHEET if self.dark_mode else LIGHT_STYLESHEET)
 
         self._update_theme_button()
-        self._update_sidebar_icons(
+        update_sidebar_icons(
             self._view_buttons, self._selected_view_index, self.dark_mode
         )
 

@@ -74,6 +74,9 @@ class DetailDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Détail")
         self.resize(640, 460)
+        self._build_widgets()
+
+    def _build_widgets(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(8)
@@ -100,10 +103,8 @@ class DetailDialog(QDialog):
         layout.addWidget(self.table, stretch=1)
         layout.addLayout(close_row)
 
-    def _fill(self, title, subtitle, headers, rows, stretch_column=0):
-        self.title.setText(title)
-        self.subtitle.setText(subtitle)
-        self.table.setSortingEnabled(False)  # pas de tri pendant le remplissage
+    def _configure_table(self, headers, rows, stretch_column):
+        self.table.setSortingEnabled(False)
         self.table.clear()
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
@@ -117,6 +118,11 @@ class DetailDialog(QDialog):
                 c, QHeaderView.ResizeMode.Stretch if c == stretch_column
                 else QHeaderView.ResizeMode.ResizeToContents
             )
+
+    def _fill(self, title, subtitle, headers, rows, stretch_column=0):
+        self.title.setText(title)
+        self.subtitle.setText(subtitle)
+        self._configure_table(headers, rows, stretch_column)
         self.table.setSortingEnabled(True)
         self.show()
         self.raise_()

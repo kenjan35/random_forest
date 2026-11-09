@@ -13,7 +13,6 @@ from src.predict import (
 
 TANK_VOLUME_COLUMN = "(MFSX) FSA Total Tank Volume (Ltr) [MFSX:01:1:6] (S1)"
 GLITCH_OVERLAP_THRESHOLD = 0.6
-GLITCH_BASELINE_RATIO = GLITCH_REFERENCE_FRACTION
 
 
 def group_consecutive(indices):

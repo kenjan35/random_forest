@@ -67,7 +67,7 @@ def _table(document, headers, widths_mm):
     table.style = "Table Grid"
     table.alignment = WD_TABLE_ALIGNMENT.LEFT
     table.autofit = False
-    for i, (cell, title) in enumerate(zip(table.rows[0].cells, headers)):
+    for cell, title in zip(table.rows[0].cells, headers):
         _cell_text(cell, title, bold=True, color=RGBColor(0xFF, 0xFF, 0xFF))
         _shade(cell, ACCENT)
     _repeat_header(table.rows[0])
@@ -120,6 +120,11 @@ def _setup_page(document):
     section.top_margin = section.bottom_margin = Mm(20)
     section.left_margin = section.right_margin = Mm(20)
 
+    _setup_styles(document)
+    _setup_footer(section)
+
+
+def _setup_styles(document):
     styles = document.styles
     styles["Normal"].font.name = "Calibri"
     styles["Normal"].font.size = Pt(10.5)
@@ -136,6 +141,7 @@ def _setup_page(document):
     if zoom is not None:
         zoom.set(qn("w:percent"), "100")   # attribut obligatoire absent du modèle par défaut
 
+def _setup_footer(section):
     footer = section.footer.paragraphs[0]
     footer.text = ""
     footer.add_run(f"Rapport généré par {AUTHOR}\t\tPage ")
@@ -146,15 +152,7 @@ def _cover(document, site, period):
     for _ in range(4):
         document.add_paragraph()
     title = document.add_paragraph("RAPPORT VOL FUEL", style="Title")
-    border = OxmlElement("w:pBdr")
-    for side in ("top", "left", "bottom", "right"):
-        edge = OxmlElement(f"w:{side}")
-        edge.set(qn("w:val"), "single")
-        edge.set(qn("w:sz"), "8")
-        edge.set(qn("w:space"), "8")
-        edge.set(qn("w:color"), "000000")
-        border.append(edge)
-    title._p.get_or_add_pPr().append(border)
+    _add_cover_border(title)
     document.add_paragraph()
     for label, value in (("SITE : ", site), ("PERIODE : ", period)):
         paragraph = document.add_paragraph()
@@ -170,9 +168,68 @@ def _cover(document, site, period):
     document.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
 
 
+def _add_cover_border(title):
+    border = OxmlElement("w:pBdr")
+    for side in ("top", "left", "bottom", "right"):
+        edge = OxmlElement(f"w:{side}")
+        edge.set(qn("w:val"), "single")
+        edge.set(qn("w:sz"), "8")
+        edge.set(qn("w:space"), "8")
+        edge.set(qn("w:color"), "000000")
+        border.append(edge)
+    title._p.get_or_add_pPr().append(border)
+
+
+def _add_summary(document, events):
+    document.add_paragraph("1. Récapitulatif", style="Heading 1")
+    widths = (42, 62, 35)
+    table = _table(document, ("Date", "Tranche horaire", "Quantité"), widths)
+    for i, event in enumerate(events):
+        _add_row(table, (_event_date(event), _event_time_range(event),
+                         f"{float(event.get('fuel_drop') or 0):g} L"), widths,
+                 zebra=i % 2 == 1, center_column=2)
+    total = sum(float(event.get("fuel_drop") or 0) for event in events)
+    _add_row(table, ("", "Total", f"{total:g} L"), widths, bold=True, center_column=2)
+    document.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
+    return total
+
+
+def _add_detail(document, result, events, period, total, chart_saver, output_path):
+    document.add_paragraph(f"2. {period}", style="Heading 1")
+    widths = (25, 27, 22, 96)
+    table = _table(document, ("Date", "Tranche horaire", "Quantité", "Capture d'écran"), widths)
+    temporary_images = []
+    try:
+        temporary_images = _add_detail_rows(
+            table, result, events, widths, chart_saver
+        )
+        _add_row(table, ("", "Total", f"{total:g} L", ""), widths, bold=True, center_column=2)
+        document.save(output_path)
+    finally:
+        for image_path in temporary_images:
+            if os.path.exists(image_path):
+                os.remove(image_path)
+
+
+def _add_detail_rows(table, result, events, widths, chart_saver):
+    images = []
+    for i, event in enumerate(events):
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as handle:
+            image_path = handle.name
+        images.append(image_path)
+        chart_saver(result, image_path, event)
+        cells = _add_row(table, (_event_date(event), _event_time_range(event),
+                                 f"{float(event.get('fuel_drop') or 0):g} L", None),
+                         widths, zebra=i % 2 == 1, center_column=2)
+        picture = cells[3].paragraphs[0]
+        picture.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        picture.add_run().add_picture(image_path, width=Mm(88))
+    return images
+
+
 # ------------------------------------------------------------------ rapports
 
-def create_site_report_docx(result, output_path, period_start, period_end, chart_saver):
+def create_site_report_docx(result, output_path, period_start, _period_end, chart_saver):
     events = list(result.get("events", []))
     if not events:
         raise ValueError("Ce site ne contient aucun vol détecté.")
@@ -184,40 +241,8 @@ def create_site_report_docx(result, output_path, period_start, period_end, chart
     document.core_properties.title = f"RAPPORT VOL FUEL - {site}"
     document.core_properties.author = AUTHOR
     _cover(document, site, period)
-
-    total = sum(float(event.get("fuel_drop") or 0) for event in events)
-
-    document.add_paragraph("1. Récapitulatif", style="Heading 1")
-    widths = (42, 62, 35)
-    table = _table(document, ("Date", "Tranche horaire", "Quantité"), widths)
-    for i, event in enumerate(events):
-        _add_row(table, (_event_date(event), _event_time_range(event),
-                         f"{float(event.get('fuel_drop') or 0):g} L"), widths, zebra=i % 2 == 1, center_column=2)
-    _add_row(table, ("", "Total", f"{total:g} L"), widths, bold=True, center_column=2)
-    document.add_paragraph().add_run().add_break(WD_BREAK.PAGE)
-
-    document.add_paragraph(f"2. {period}", style="Heading 1")
-    widths = (25, 27, 22, 96)
-    table = _table(document, ("Date", "Tranche horaire", "Quantité", "Capture d'écran"), widths)
-    temporary_images = []
-    try:
-        for i, event in enumerate(events):
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as handle:
-                image_path = handle.name
-            temporary_images.append(image_path)
-            chart_saver(result, image_path, event)
-            cells = _add_row(table, (_event_date(event), _event_time_range(event),
-                                     f"{float(event.get('fuel_drop') or 0):g} L", None),
-                             widths, zebra=i % 2 == 1, center_column=2)
-            picture = cells[3].paragraphs[0]
-            picture.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            picture.add_run().add_picture(image_path, width=Mm(88))
-        _add_row(table, ("", "Total", f"{total:g} L", ""), widths, bold=True, center_column=2)
-        document.save(output_path)
-    finally:
-        for image_path in temporary_images:
-            if os.path.exists(image_path):
-                os.remove(image_path)
+    total = _add_summary(document, events)
+    _add_detail(document, result, events, period, total, chart_saver, output_path)
 
 
 def create_docx_reports(results, output_dir, period_start, period_end, chart_saver):

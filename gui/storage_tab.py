@@ -1,5 +1,4 @@
 import gzip
-import os
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Qt, Signal
@@ -24,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from gui.rms_client import describe_http_error as _describe
 from gui.cursor_utils import apply_pointer_cursor, set_button_busy, set_button_enabled
+from gui.storage_utils import safe_destination
 
 S3_ENDPOINT = "api-rms.appesca.com"
 S3_BUCKET = "rms-saltec"
@@ -102,12 +102,7 @@ class StorageWorker(QThread):
         output_root = Path(self.output_dir).resolve()
         output_root.mkdir(parents=True, exist_ok=True)
         for object_name in self.object_names:
-            relative_name = Path(object_name.replace("/", os.sep))
-            if relative_name.is_absolute() or ".." in relative_name.parts:
-                raise ValueError(f"Nom d'objet invalide : {object_name}")
-            destination = (output_root / relative_name).resolve()
-            if output_root not in destination.parents:
-                raise ValueError(f"Chemin de téléchargement invalide : {object_name}")
+            _, destination = safe_destination(self.output_dir, object_name)
             destination.parent.mkdir(parents=True, exist_ok=True)
             response = client.get_object(self.bucket, object_name)
             try:
@@ -276,7 +271,7 @@ class StorageExtractionTab(QWidget):
             "download", endpoint, access_key, secret_key, bucket,
             self.prefix_edit.text().strip(), region, self.output_edit.text().strip(), object_names, parent=self,
         )
-        self.worker.progress.connect(lambda done, total: self.progress.setValue(done))
+        self.worker.progress.connect(lambda done, _: self.progress.setValue(done))
         self.worker.finished_ok.connect(self._on_finished)
         self.worker.failed.connect(self._on_failed)
         self.worker.finished.connect(self._after_worker)

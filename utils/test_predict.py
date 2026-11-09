@@ -41,17 +41,22 @@ def main():
 
     csv_path = sys.argv[1]
     prediction = predict(csv_path)  # 0/1 par fenêtre, après les règles
+    events = group_consecutive(np.flatnonzero(prediction == 1))
+    _print_prediction_summary(csv_path, prediction)
+    if not events:
+        print("\n✅ Aucun vol détecté sur ce fichier.")
+        return
+    fuel, _, timestamps = load_site(csv_path)
+    _print_events(events, fuel, timestamps)
 
+
+def _print_prediction_summary(csv_path, prediction):
     print(f"Fichier : {csv_path}")
     print(f"Fenêtres totales analysées : {len(prediction)}")
     print(f"Fenêtres en alerte : {int(prediction.sum())}")
 
-    events = group_consecutive(np.flatnonzero(prediction == 1))
-    if not events:
-        print("\n✅ Aucun vol détecté sur ce fichier.")
-        return
 
-    fuel, _, timestamps = load_site(csv_path)
+def _print_events(events, fuel, timestamps):
     last_row = len(fuel) - 1
     if timestamps is None:
         print(f"(colonne {TIME_COL!r} absente : seuls les numéros de ligne sont affichés)")

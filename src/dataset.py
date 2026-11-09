@@ -27,6 +27,22 @@ def list_csv_files(data_folder):
     return sorted(glob.glob(os.path.join(data_folder, "**", "*.csv"), recursive=True))
 
 
+def _validate_csv_files(csv_files, data_folder):
+    if not csv_files:
+        raise FileNotFoundError(f"Aucun fichier CSV trouvé dans {data_folder!r}")
+    names = [os.path.basename(f) for f in csv_files]
+    duplicates = sorted({n for n in names if names.count(n) > 1})
+    if duplicates:
+        print(f"ATTENTION : noms de fichiers en double, annotations partagées : {duplicates}")
+    return names
+
+
+def _load_file_samples(csv_file, filename, annotations):
+    X = create_windows(create_features(load_csv(csv_file)), WINDOW_SIZE)
+    y = create_labels(len(X), WINDOW_SIZE, annotations.get(filename, []))
+    return X, y
+
+
 def build_dataset(data_folder, annotations_file):
     """
     Retourne X, y, groups.
@@ -36,18 +52,11 @@ def build_dataset(data_folder, annotations_file):
     """
     annotations = load_annotations(annotations_file)
     csv_files = list_csv_files(data_folder)
-    if not csv_files:
-        raise FileNotFoundError(f"Aucun fichier CSV trouvé dans {data_folder!r}")
-
-    names = [os.path.basename(f) for f in csv_files]
-    duplicates = sorted({n for n in names if names.count(n) > 1})
-    if duplicates:
-        print(f"ATTENTION : noms de fichiers en double, annotations partagées : {duplicates}")
+    names = _validate_csv_files(csv_files, data_folder)
 
     all_X, all_y, all_groups = [], [], []
     for file_idx, (csv_file, filename) in enumerate(zip(csv_files, names)):
-        X = create_windows(create_features(load_csv(csv_file)), WINDOW_SIZE)
-        y = create_labels(len(X), WINDOW_SIZE, annotations.get(filename, []))
+        X, y = _load_file_samples(csv_file, filename, annotations)
         all_X.append(X)
         all_y.append(y)
         all_groups.append(np.full(len(X), file_idx))

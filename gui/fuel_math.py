@@ -35,5 +35,5 @@ def event_loss(fuel, row_start, row_end):
     extremes = drop_extremes(fuel, row_start, row_end)
     if extremes is None:
         return 0.0
-    (_ih, high), (_il, low) = extremes
+    (_, high), (_, low) = extremes
     return round(high - low, 1)

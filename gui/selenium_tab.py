@@ -1,7 +1,4 @@
 import os
-import unicodedata
-from datetime import datetime
-
 from openpyxl import load_workbook
 from PySide6.QtCore import QDate, Qt, Signal
 from PySide6.QtGui import QIcon, QCursor
@@ -18,6 +15,13 @@ from gui.pdf_reports import create_reports
 from gui.docx_reports import create_docx_reports
 from gui.site_history import record_extraction
 from gui.workers import SeleniumExtractionWorker
+from gui.selenium_utils import (
+    alert_range,
+    format_alert_timestamp,
+    format_capacity,
+    normalize_excel_value,
+    total_loss,
+)
 
 
 class SeleniumTab(QWidget):
@@ -210,7 +214,7 @@ class SeleniumTab(QWidget):
         self.worker.dates_adjusted.connect(self.on_dates_adjusted)
         self.worker.start()
 
-    def on_dates_adjusted(self, start_date, end_date):
+    def on_dates_adjusted(self, _start_date, _end_date):
         self._update_site_progress()
 
     def on_result_ready(self, result):
@@ -271,38 +275,19 @@ class SeleniumTab(QWidget):
 
     @staticmethod
     def _format_alert_timestamp(value):
-        text = str(value or "").strip()
-        for format_string in (
-            "%Y-%m-%dT%H:%M:%S.%f",
-            "%Y-%m-%dT%H:%M:%S",
-            "%Y-%m-%d %H:%M:%S.%f",
-            "%Y-%m-%d %H:%M:%S",
-        ):
-            try:
-                return datetime.strptime(text.rstrip("Z"), format_string).strftime("%Y-%m-%d %H:%M")
-            except ValueError:
-                continue
-        return text[:16]
+        return format_alert_timestamp(value)
 
     @classmethod
     def _alert_range(cls, events):
-        if not events:
-            return "", ""
-        return (
-            cls._format_alert_timestamp(events[0].get("ts_start")),
-            cls._format_alert_timestamp(events[-1].get("ts_end")),
-        )
+        return alert_range(events)
 
     @staticmethod
     def _total_loss(events):
-        total = sum(float(event.get("fuel_drop") or 0) for event in events)
-        return f"{total:.1f} L"
+        return total_loss(events)
 
     @staticmethod
     def _format_capacity(value):
-        if value is None or value == "":
-            return ""
-        return f"{float(value):.1f} L"
+        return format_capacity(value)
 
     def load_sites_file(self):
         path, _ = QFileDialog.getOpenFileName(self, "Choisir le fichier Excel des sites", "", "Excel (*.xlsx *.xls)")
@@ -362,8 +347,7 @@ class SeleniumTab(QWidget):
 
     @staticmethod
     def _normalize_excel_value(value):
-        text = unicodedata.normalize("NFKC", str(value))
-        return text.replace("\ufeff", "").replace("\xa0", " ").strip().casefold()
+        return normalize_excel_value(value)
 
     def select_all_sites(self):
         self.site_table.selectAll()

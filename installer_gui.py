@@ -15,6 +15,8 @@ import subprocess
 import sys
 import threading
 
+from installer_utils import explain_failure, venv_python
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENV_DIR = os.path.join(BASE_DIR, "venv")
 REQUIREMENTS = os.path.join(BASE_DIR, "requirements-gui.txt")
@@ -37,12 +39,6 @@ STEPS = [
     ("check", "Vérification de l'installation", 90, 97),
     ("shortcut", "Création du raccourci sur le Bureau", 97, 100),
 ]
-
-
-def venv_python(gui=False):
-    if IS_WINDOWS:
-        return os.path.join(VENV_DIR, "Scripts", "pythonw.exe" if gui else "python.exe")
-    return os.path.join(VENV_DIR, "bin", "python")
 
 
 class InstallCancelled(Exception):
@@ -115,17 +111,7 @@ class Installer:
 
     @staticmethod
     def _explain_failure(tail, code):
-        text = tail.lower()
-        if any(s in text for s in ("connection", "timed out", "name resolution", "getaddrinfo",
-                                   "proxy", "ssl", "certificate", "no matching distribution")):
-            return ("Téléchargement impossible : vérifiez la connexion Internet "
-                    "(ou le proxy de l'entreprise), puis cliquez sur « Réessayer ».")
-        if "permission" in text or "access is denied" in text or "accès refusé" in text:
-            return ("Accès refusé à un fichier : fermez l'application si elle est ouverte, "
-                    "puis cliquez sur « Réessayer ».")
-        if "no space" in text or "espace" in text:
-            return "Espace disque insuffisant."
-        return f"La commande a échoué (code {code}). Consultez les détails ci-dessous."
+        return explain_failure(tail, code)
 
     def step(self, key, state, detail=""):
         self.emit("step", key, state, detail)

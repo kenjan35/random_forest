@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 
 from gui import rms_client as rms
 from gui.cursor_utils import apply_pointer_cursor, set_button_busy, set_button_enabled
+from gui.rms_console_utils import download_text
 
 # ---------------------------------------------------------------- apparence
 
@@ -1217,21 +1218,7 @@ class RmsConsoleTab(QWidget):
 
     @staticmethod
     def _download_text(s):
-        done = s["telecharges"] + s["deja_presents"]
-        rate = done / max(s.get("duree", 0), 0.1)
-        listed = f"{s['listes']:,}" + ("" if s["listage_termine"] else "+")
-        parts = [f"{done:,} / {listed} fichiers", f"{rate:.0f} fichiers/s", rms.format_size(s["octets"])]
-        if s.get("sites"):
-            parts.append(f"{s['sites']:,} mapping(s)")
-        if s["deja_presents"]:
-            parts.append(f"{s['deja_presents']:,} déjà présents")
-        if s["erreurs"]:
-            parts.append(f"{s['erreurs']:,} erreur(s)")
-        if s["listage_termine"] and rate > 0:
-            remaining = (s["listes"] - done - s["erreurs"]) / rate
-            if remaining > 1:
-                parts.append(f"reste ~{int(remaining // 60)} min {int(remaining % 60):02d} s")
-        return " · ".join(parts).replace(",", " ")
+        return download_text(s, rms.format_size)
 
     def _on_download_progress(self, s):
         done = s["telecharges"] + s["deja_presents"] + s["erreurs"]
